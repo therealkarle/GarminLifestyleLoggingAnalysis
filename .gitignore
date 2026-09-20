@@ -1,0 +1,41 @@
+# Personal configuration and secrets
+GarminLifestyleAnalysisConfig.yaml
+*.local.yaml
+*.local.yml
+*.secret.yaml
+*.secret.yml
+.env
+.env.*
+!.env.example
+
+# Garmin exports may contain private health data
+GarminExport/
+*.fit
+*.zip
+
+# Generated analysis results
+Out/
+output/
+outputs/
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# R session and generated files
+.Rhistory
+.RData
+.Ruserdata
+*.Rout
+
+# Local tooling and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
