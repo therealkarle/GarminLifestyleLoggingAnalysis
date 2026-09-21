@@ -58,5 +58,5 @@ metric_directions:
   Awake_Time: lower
 
 value_interval: 0.80
-confidence_level: 0.95
+confidence_interval: 0.95
 significance_level: 0.05

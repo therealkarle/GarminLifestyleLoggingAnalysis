@@ -304,8 +304,8 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   progress("[Lifestyle] Starting analysis...")
   start <- parse_date(config$start_date); end <- parse_date(config$end_date)
   if (is.na(start) || is.na(end) || end < start) stop("Config requires valid start_date and end_date with end_date >= start_date")
-  interval <- as.numeric(config$value_interval %||% 0.80); confidence <- as.numeric(config$confidence_level %||% 0.95); alpha <- as.numeric(config$significance_level %||% 0.05)
-  if (!(interval > 0 && interval <= 1 && confidence > 0 && confidence < 1 && alpha > 0 && alpha < 1)) stop("Invalid interval, confidence_level, or significance_level")
+  interval <- as.numeric(config$value_interval %||% 0.80); confidence <- as.numeric(config$confidence_interval %||% config$confidence_level %||% 0.95); alpha <- as.numeric(config$significance_level %||% 0.05)
+  if (!(interval > 0 && interval <= 1 && confidence > 0 && confidence < 1 && alpha > 0 && alpha < 1)) stop("Invalid value_interval, confidence_interval, or significance_level")
   lifestyle_files <- if (!is.null(lifestyle_materialized$direct_json)) lifestyle_materialized$direct_json else source_files(lifestyle_materialized, "LifestyleLogging\\.json$")
   if (!length(lifestyle_files)) stop("No LifestyleLogging.json found in Garmin export")
   progress("[Lifestyle] Reading ", length(lifestyle_files), " LifestyleLogging JSON file(s)...")
@@ -368,7 +368,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
       setNames(total, paste0("total_", names(total)))
     )
     delta <- p_value <- ci_low <- ci_high <- NULL
-    if (length(done_values) >= 2 && length(not_done_values) >= 2) { delta <- mean(done_values) - mean(not_done_values); test <- stats::t.test(done_values, not_done_values, var.equal = FALSE); p_value <- unname(test$p.value); ci_low <- unname(test$conf.int[1]); ci_high <- unname(test$conf.int[2]) }
+    if (length(done_values) >= 2 && length(not_done_values) >= 2) { delta <- mean(done_values) - mean(not_done_values); test <- stats::t.test(done_values, not_done_values, var.equal = FALSE, conf.level = confidence); p_value <- unname(test$p.value); ci_low <- unname(test$conf.int[1]); ci_high <- unname(test$conf.int[2]) }
     significant <- !is.null(p_value) && p_value < alpha && !is.null(delta) && delta != 0
     classification <- if (significant && delta > 0) "significant_positive" else if (significant && delta < 0) "significant_negative" else "not_significant"
     interpretation <- if (!significant || is.null(delta) || delta == 0) "not_significant" else if ((direction == "higher" && delta > 0) || (direction == "lower" && delta < 0)) "better" else "worse"
@@ -389,7 +389,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   progress("[Lifestyle] Statistical analysis finished: ", total_count, " activity/metric combinations")
   progress(sprintf("[Lifestyle] Significance: %d significant (%.1f%%), %d not significant (%.1f%%)", significant_count, significance_summary$significant_percent, not_significant_count, significance_summary$not_significant_percent))
   interpretation_summary <- if (length(results)) table(vapply(results, function(x) as.character(x$interpretation %||% "not_significant"), character(1))) else integer()
-  list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_level = confidence, significance_level = alpha, method = "Welch two-sample t-test", descriptive_statistics = "mean, median, sd, interval_low, and interval_high are calculated once for total (done + not_done); group-specific outputs contain counts only", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
+  list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_interval = confidence, significance_level = alpha, method = "Welch two-sample t-test", descriptive_statistics = "mean, median, sd, interval_low, and interval_high are calculated once for total (done + not_done); group-specific outputs contain counts only", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
 }
 
 next_run_output_dir <- function(base_dir) {
