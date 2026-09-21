@@ -429,13 +429,14 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
     native_not_done_values <- values[usable & !status_values & !is.na(status_values)]
     assumed_not_done_values <- if (missing_no) values[usable & is.na(status_values)] else numeric()
     not_done_values <- c(native_not_done_values, assumed_not_done_values)
-    # Report descriptive statistics once for the complete sample. Keep only
-    # the group counts separate so the comparison groups remain transparent.
+    # Report descriptive statistics for each comparison group and the complete
+    # sample. The group-specific fields are intentionally kept together so the
+    # CSV export can place mean/median/sd/interval directly after each n.
     total <- group_stats(c(done_values, not_done_values), interval)
-    done <- group_count(done_values)
+    done <- group_stats(done_values, interval)
     native_not_done <- group_count(native_not_done_values)
     assumed_not_done <- group_count(assumed_not_done_values)
-    not_done <- group_count(not_done_values)
+    not_done <- group_stats(not_done_values, interval)
     row <- c(
       list(activity = activity, metric = metric, missing_activity_is_no = missing_no),
       setNames(done, paste0("done_", names(done))),
@@ -486,7 +487,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   progress("[Lifestyle] Statistical analysis finished: ", total_count, " activity/metric combinations")
   progress(sprintf("[Lifestyle] Significance: %d significant (%.1f%%), %d not significant (%.1f%%)", significant_count, significance_summary$significant_percent, not_significant_count, significance_summary$not_significant_percent))
   interpretation_summary <- if (length(results)) table(vapply(results, function(x) as.character(x$interpretation %||% "not_significant"), character(1))) else integer()
-    list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_interval = confidence, significance_level = alpha, method = "Welch two-sample t-test", descriptive_statistics = "mean, median, sd, interval_low, and interval_high are calculated once for the combined sample (done + not_done); CSV fields use the not_ prefix; group-specific outputs contain counts only", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
+    list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_interval = confidence, significance_level = alpha, method = "Welch two-sample t-test", descriptive_statistics = "mean, median, sd, interval_low, and interval_high are calculated for done, not_done, and the combined sample; CSV fields are grouped directly after their corresponding n", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
 }
 
 next_run_output_dir <- function(base_dir) {
