@@ -45,9 +45,10 @@ This creates a separate dated folder below
 the config to disable either format. The activity counts include only explicitly selected
 `yes` and explicitly selected `no` values; missing activity entries are
 ignored, regardless of `missing_activity_is_no`. Sleep metrics are discovered
-from all scalar fields in Garmin `_sleepData.json` records and sleep-named CSV
-files, including fields that are not yet listed in `sleep_metrics`. They are
-written only as one metric name per line in `sleep_metrics.txt`. Activity
+primarily from all scalar fields in Garmin `_sleepData.json` records, including
+fields that are not yet listed in `sleep_metrics`. Sleep-named CSV files are
+used only as a fallback for older exports without `_sleepData.json`. Metrics
+are written only as one metric name per line in `sleep_metrics.txt`. Activity
 reports contain `n_done`, `n_not_done`, and `n_total`.
 
 ## Configuration

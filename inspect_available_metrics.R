@@ -82,20 +82,24 @@ sleep_metric_records <- function(materialized) {
     }
   }
 
-  for (path in source_files(materialized, "\\.csv$")) {
-    if (!grepl("sleep|schlaf", basename(path), ignore.case = TRUE)) next
-    data <- read_csv_flexible(path)
-    if (is.null(data) || !nrow(data)) next
-    date_candidates <- names(data)[norm(names(data)) %in% c("date", "datum", "sleep date", "calendar date")]
-    if (!length(date_candidates)) next
-    date_column <- date_candidates[[1]]
-    for (i in seq_len(nrow(data))) {
-      fields <- list()
-      for (name in names(data)) {
-        value <- data[[name]][[i]]
-        if (!is.na(value) && nzchar(trimws(as.character(value)))) fields[[name]] <- TRUE
+  # JSON is the authoritative source. Inspect CSV sleep files only for older
+  # exports that contain no _sleepData.json files at all.
+  if (!length(source_files(materialized, "_sleepData\\.json$"))) {
+    for (path in source_files(materialized, "\\.csv$")) {
+      if (!grepl("sleep|schlaf", basename(path), ignore.case = TRUE)) next
+      data <- read_csv_flexible(path)
+      if (is.null(data) || !nrow(data)) next
+      date_candidates <- names(data)[norm(names(data)) %in% c("date", "datum", "sleep date", "calendar date")]
+      if (!length(date_candidates)) next
+      date_column <- date_candidates[[1]]
+      for (i in seq_len(nrow(data))) {
+        fields <- list()
+        for (name in names(data)) {
+          value <- data[[name]][[i]]
+          if (!is.na(value) && nzchar(trimws(as.character(value)))) fields[[name]] <- TRUE
+        }
+        add_record(parse_date(data[[date_column]][[i]]), fields)
       }
-      add_record(parse_date(data[[date_column]][[i]]), fields)
     }
   }
   records
@@ -113,16 +117,19 @@ read_sleep_inventory <- function(materialized) {
     }
   }
 
-  csv_files <- source_files(materialized, "\\.csv$")
+  csv_files <- character()
   csv_columns <- list()
-  for (path in csv_files) {
-    data <- read_csv_flexible(path)
-    if (!is.null(data) && ncol(data)) {
-      for (name in names(data)) {
-        csv_columns[[name]] <- TRUE
-        if (is.null(samples[[name]])) {
-          values <- data[[name]][!is.na(data[[name]]) & nzchar(trimws(as.character(data[[name]])))]
-          if (length(values)) samples[[name]] <- trimws(as.character(values[[1]]))
+  if (!length(json_files)) {
+    csv_files <- source_files(materialized, "\\.csv$")
+    for (path in csv_files) {
+      data <- read_csv_flexible(path)
+      if (!is.null(data) && ncol(data)) {
+        for (name in names(data)) {
+          csv_columns[[name]] <- TRUE
+          if (is.null(samples[[name]])) {
+            values <- data[[name]][!is.na(data[[name]]) & nzchar(trimws(as.character(data[[name]])))]
+            if (length(values)) samples[[name]] <- trimws(as.character(values[[1]]))
+          }
         }
       }
     }

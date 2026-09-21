@@ -252,8 +252,15 @@ metric_directions <- function(config, metrics) {
 
 sleep_rows <- function(materialized, specs) {
   result <- sleep_rows_json(materialized, specs)
+  # Garmin's _sleepData.json files are the authoritative source. CSV files are
+  # only a compatibility fallback for exports that do not contain usable JSON.
+  if (length(result)) {
+    progress("[Lifestyle] Using sleep JSON data; skipping CSV fallback.")
+    return(result)
+  }
+
   csv_files <- source_files(materialized, "\\.csv$")
-  if (!length(result)) progress("[Lifestyle] Reading ", length(csv_files), " sleep CSV file(s)...")
+  progress("[Lifestyle] No usable sleep JSON found; reading ", length(csv_files), " sleep CSV file(s) as fallback...")
   for (path in csv_files) {
     progress("[Lifestyle] Reading sleep file: ", path)
     data <- read_csv_flexible(path); if (is.null(data) || !nrow(data)) next
