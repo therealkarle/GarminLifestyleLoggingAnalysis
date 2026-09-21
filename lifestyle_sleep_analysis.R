@@ -121,14 +121,54 @@ materialize_source <- function(source) {
   stop("Input must be a Garmin folder, ZIP archive, or LifestyleLogging.json: ", source)
 }
 
-source_files <- function(materialized, pattern) if (!is.null(materialized$root)) list.files(materialized$root, pattern = pattern, recursive = TRUE, full.names = TRUE, ignore.case = TRUE) else character()
+excluded_source_directories <- c("INREACH")
+
+source_files <- function(materialized, pattern) {
+  if (is.null(materialized$root)) return(character())
+
+  # Walk one directory at a time so excluded Garmin subtrees are never
+  # traversed. list.files(..., recursive = TRUE) discovers INREACH first and
+  # only allows filtering after that work has already happened.
+  walk <- function(directory) {
+    entries <- list.files(directory, full.names = TRUE, recursive = FALSE, include.dirs = TRUE)
+    if (!length(entries)) return(character())
+    is_directory <- dir.exists(entries)
+    files <- entries[!is_directory & grepl(pattern, basename(entries), ignore.case = TRUE)]
+    directories <- entries[is_directory & !(toupper(basename(entries)) %in% excluded_source_directories)]
+    c(files, unlist(lapply(directories, walk), use.names = FALSE))
+  }
+
+  walk(materialized$root)
+}
 
 read_csv_flexible <- function(path) {
-  first <- readLines(path, n = 1, encoding = "UTF-8", warn = FALSE)
-  commas <- if (length(first)) lengths(regmatches(first, gregexpr(",", first, fixed = TRUE))) else 0
-  semicolons <- if (length(first)) lengths(regmatches(first, gregexpr(";", first, fixed = TRUE))) else 0
+  # Count separators from raw bytes so malformed UTF-8 cannot trigger a
+  # warning while determining the delimiter.
+  first_raw <- tryCatch({
+    bytes <- readBin(path, what = "raw", n = 1024L)
+    line_end <- match(as.raw(0x0A), bytes)
+    if (!is.na(line_end)) bytes[seq_len(line_end - 1L)] else bytes
+  }, error = function(e) raw())
+  commas <- if (length(first_raw)) sum(first_raw == charToRaw(",")) else 0L
+  semicolons <- if (length(first_raw)) sum(first_raw == charToRaw(";")) else 0L
   separator <- if (semicolons > commas) ";" else ","
-  tryCatch(utils::read.csv(path, sep = separator, check.names = FALSE, stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM"), error = function(e) NULL)
+
+  # Garmin files are not consistently encoded. Try UTF-8 first, then the
+  # Windows/Latin-1 fallbacks without exposing parser warnings to the caller.
+  for (encoding in c("UTF-8-BOM", "windows-1252", "latin1")) {
+    data <- tryCatch(
+      suppressWarnings(utils::read.csv(
+        path,
+        sep = separator,
+        check.names = FALSE,
+        stringsAsFactors = FALSE,
+        fileEncoding = encoding
+      )),
+      error = function(e) NULL
+    )
+    if (!is.null(data)) return(data)
+  }
+  NULL
 }
 
 json_named_value <- function(value, aliases) {
@@ -215,7 +255,6 @@ sleep_rows <- function(materialized, specs) {
   csv_files <- source_files(materialized, "\\.csv$")
   if (!length(result)) progress("[Lifestyle] Reading ", length(csv_files), " sleep CSV file(s)...")
   for (path in csv_files) {
-    if (length(result) && grepl("INREACH", path, ignore.case = TRUE)) next
     progress("[Lifestyle] Reading sleep file: ", path)
     data <- read_csv_flexible(path); if (is.null(data) || !nrow(data)) next
     date_candidates <- names(data)[norm(names(data)) %in% c("date", "datum", "sleep score 4 wochen", "sleep date", "calendar date")]
