@@ -71,6 +71,15 @@ metric_directions:
   Restless_Moments: lower
   Awake_Time: lower
 
+# Optional metrics calculated from scalar sleep fields and/or metrics above.
+# Formulas support names, numbers, +, -, *, /, and parentheses. Sleep_Duration
+# is normalized to hours by the analysis, while deepSleepSeconds is seconds.
+# Use `deepSleepSeconds / Sleep_Duration` for seconds per sleep hour, or multiply
+# the denominator by 3600 for the deep-sleep share of total sleep duration.
+derived_sleep_metrics:
+  DeepSleep_Share:
+    formula: "deepSleepSeconds / (Sleep_Duration * 3600)"
+
 value_interval: 0.80
 confidence_interval: 0.95
 significance_level: 0.05

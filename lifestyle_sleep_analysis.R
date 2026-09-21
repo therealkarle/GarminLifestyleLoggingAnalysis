@@ -112,6 +112,184 @@ json_scalar_value <- function(values, aliases) {
   NULL
 }
 
+formula_tokens <- function(formula) {
+  expression <- trimws(as.character(formula)[1])
+  if (!nzchar(expression)) stop("Derived metric formulas must not be empty.")
+  tokens <- character()
+  position <- 1L
+  expression_length <- nchar(expression)
+  while (position <= expression_length) {
+    character_at_position <- substr(expression, position, position)
+    if (grepl("\\s", character_at_position)) {
+      position <- position + 1L
+      next
+    }
+    remaining <- substr(expression, position, expression_length)
+    if (grepl("^[A-Za-z_]", remaining)) {
+      match <- regmatches(remaining, regexpr("^[A-Za-z_][A-Za-z0-9_.]*", remaining, perl = TRUE))
+      tokens <- c(tokens, match)
+      position <- position + nchar(match)
+      next
+    }
+    if (grepl("^[0-9.]", remaining)) {
+      match <- regmatches(remaining, regexpr("^(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?", remaining, perl = TRUE))
+      if (!length(match) || !nzchar(match)) stop(sprintf("Invalid number near '%s'.", remaining))
+      tokens <- c(tokens, match)
+      position <- position + nchar(match)
+      next
+    }
+    if (character_at_position %in% c("+", "-", "*", "/", "(", ")")) {
+      tokens <- c(tokens, character_at_position)
+      position <- position + 1L
+      next
+    }
+    stop(sprintf("Unsupported character '%s' in derived metric formula.", character_at_position))
+  }
+  tokens
+}
+
+evaluate_derived_formula <- function(formula, values) {
+  tokens <- formula_tokens(formula)
+  token_index <- 1L
+  peek <- function() if (token_index <= length(tokens)) tokens[[token_index]] else NULL
+  consume <- function() {
+    token <- peek()
+    token_index <<- token_index + 1L
+    token
+  }
+  finite_value <- function(value) {
+    value <- suppressWarnings(as.numeric(value)[1])
+    if (!length(value) || is.na(value) || !is.finite(value)) NA_real_ else value
+  }
+  parse_expression <- NULL
+  parse_primary <- function() {
+    token <- peek()
+    if (is.null(token)) stop("Unexpected end of derived metric formula.")
+    if (identical(token, "(")) {
+      consume()
+      value <- parse_expression()
+      if (!identical(consume(), ")")) stop("Missing ')' in derived metric formula.")
+      return(value)
+    }
+    if (grepl("^[A-Za-z_]", token)) {
+      consume()
+      return(finite_value(values[[token]]))
+    }
+    if (grepl("^(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$", token, perl = TRUE)) {
+      consume()
+      return(finite_value(token))
+    }
+    stop(sprintf("Unexpected token '%s' in derived metric formula.", token))
+  }
+  parse_unary <- function() {
+    token <- peek()
+    if (identical(token, "+")) {
+      consume()
+      return(parse_unary())
+    }
+    if (identical(token, "-")) {
+      consume()
+      value <- parse_unary()
+      return(if (is.na(value)) NA_real_ else -value)
+    }
+    parse_primary()
+  }
+  apply_operation <- function(left, operator, right) {
+    left <- finite_value(left); right <- finite_value(right)
+    if (is.na(left) || is.na(right)) return(NA_real_)
+    value <- switch(operator, `+` = left + right, `-` = left - right, `*` = left * right, `/` = if (right == 0) NA_real_ else left / right)
+    finite_value(value)
+  }
+  parse_term <- function() {
+    value <- parse_unary()
+    while (identical(peek(), "*") || identical(peek(), "/")) {
+      operator <- consume()
+      value <- apply_operation(value, operator, parse_unary())
+    }
+    value
+  }
+  parse_expression <- function() {
+    value <- parse_term()
+    while (identical(peek(), "+") || identical(peek(), "-")) {
+      operator <- consume()
+      value <- apply_operation(value, operator, parse_term())
+    }
+    value
+  }
+  value <- parse_expression()
+  if (token_index <= length(tokens)) stop(sprintf("Unexpected token '%s' in derived metric formula.", peek()))
+  value
+}
+
+derived_metric_specs <- function(config) {
+  configured <- config$derived_sleep_metrics %||% list()
+  inline <- config$sleep_metrics %||% list()
+  formulas <- list()
+  add_formulas <- function(definitions, source_name, only_formula_definitions = FALSE) {
+    if (!length(definitions)) return(invisible(NULL))
+    if (!is.list(definitions) || is.null(names(definitions)) || any(!nzchar(names(definitions)))) {
+      stop(sprintf("%s must be a named mapping of metric names to formulas.", source_name))
+    }
+    for (metric in names(definitions)) {
+      definition <- definitions[[metric]]
+      is_formula_definition <- is.list(definition) && !is.null(definition$formula)
+      if (only_formula_definitions && !is_formula_definition) next
+      formula <- if (is_formula_definition) definition$formula else definition
+      if (length(formula) != 1L || is.na(formula) || !nzchar(trimws(as.character(formula)))) {
+        stop(sprintf("Derived metric '%s' in %s requires a non-empty formula.", metric, source_name))
+      }
+      if (metric %in% names(formulas)) stop(sprintf("Derived metric '%s' is defined more than once.", metric))
+      formula <- as.character(formula)
+      tryCatch(evaluate_derived_formula(formula, list()), error = function(error) {
+        stop(sprintf("Invalid formula for derived metric '%s': %s", metric, conditionMessage(error)))
+      })
+      formulas[[metric]] <<- formula
+    }
+    invisible(NULL)
+  }
+  add_formulas(configured, "derived_sleep_metrics")
+  add_formulas(inline, "sleep_metrics", only_formula_definitions = TRUE)
+  formulas
+}
+
+evaluate_derived_metrics <- function(source_values, base_values, derived_specs) {
+  values <- source_values
+  for (metric in names(base_values)) values[[metric]] <- base_values[[metric]]
+  for (metric in names(derived_specs)) {
+    value <- evaluate_derived_formula(derived_specs[[metric]], values)
+    if (!is.na(value)) {
+      values[[metric]] <- value
+      base_values[[metric]] <- value
+    }
+  }
+  base_values
+}
+
+sleep_metric_values_from_json <- function(scalar_values, specs, derived_specs) {
+  source_values <- setNames(lapply(scalar_values, parse_number), names(scalar_values))
+  base_values <- list()
+  for (metric in names(specs)) {
+    value <- json_scalar_value(scalar_values, specs[[metric]])
+    if (is.null(value) && metric == "Sleep_Score") {
+      value <- json_scalar_value(scalar_values, c("overallScore"))
+    }
+    if (is.null(value) && metric == "Sleep_Duration") {
+      value <- json_scalar_value(scalar_values, c("sleepDuration", "totalSleepTime"))
+    }
+    if (is.null(value) && metric == "Sleep_Duration") {
+      stage_values <- vapply(
+        c("deepSleepSeconds", "lightSleepSeconds", "remSleepSeconds"),
+        function(field) parse_number(json_scalar_value(scalar_values, field)),
+        numeric(1)
+      )
+      if (all(is.finite(stage_values)) && sum(stage_values) > 0) value <- sum(stage_values) / 3600
+    }
+    if (!is.null(value)) value <- if (metric == "Sleep_Duration") duration_to_hours(value) else parse_number(value)
+    if (!is.null(value) && !is.na(value)) base_values[[metric]] <- value
+  }
+  evaluate_derived_metrics(source_values, base_values, derived_specs)
+}
+
 find_daily_logs <- function(value) {
   if (is.list(value) && !is.null(value$dailyLogList) && is.list(value$dailyLogList)) return(value$dailyLogList)
   if (is.list(value)) for (item in value) { found <- find_daily_logs(item); if (!is.null(found)) return(found) }
@@ -241,7 +419,7 @@ sleep_json_value <- function(entry, metric, aliases) {
   NA_real_
 }
 
-sleep_rows_json <- function(materialized, specs) {
+sleep_rows_json <- function(materialized, specs, derived_specs) {
   json_files <- source_files(materialized, "_sleepData\\.json$")
   if (!length(json_files)) return(list())
   progress("[Lifestyle] Reading ", length(json_files), " sleep JSON file(s)...")
@@ -256,30 +434,9 @@ sleep_rows_json <- function(materialized, specs) {
       if (is.na(day)) next
       key <- as.character(day); if (is.null(result[[key]])) result[[key]] <- list()
       scalar_values <- json_scalar_values(entry)
-      for (metric in names(specs)) {
-        value <- json_scalar_value(scalar_values, specs[[metric]])
-        if (is.null(value) && metric == "Sleep_Score") {
-          value <- json_scalar_value(scalar_values, c("overallScore"))
-        }
-        if (is.null(value) && metric == "Sleep_Duration") {
-          value <- json_scalar_value(scalar_values, c("sleepDuration", "totalSleepTime"))
-        }
-        if (is.null(value) && metric == "Sleep_Duration") {
-          stage_values <- vapply(
-            c("deepSleepSeconds", "lightSleepSeconds", "remSleepSeconds"),
-            function(field) parse_number(json_scalar_value(scalar_values, field)),
-            numeric(1)
-          )
-          if (all(is.finite(stage_values)) && sum(stage_values) > 0) {
-            value <- sum(stage_values) / 3600
-          }
-        }
-        if (!is.null(value)) {
-          value <- if (metric == "Sleep_Duration") duration_to_hours(value) else parse_number(value)
-        } else {
-          value <- NA_real_
-        }
-        if (!is.na(value) && is.null(result[[key]][[metric]])) result[[key]][[metric]] <- value
+      metric_values <- sleep_metric_values_from_json(scalar_values, specs, derived_specs)
+      for (metric in names(metric_values)) {
+        if (is.null(result[[key]][[metric]])) result[[key]][[metric]] <- metric_values[[metric]]
       }
     }
   }
@@ -289,6 +446,8 @@ sleep_rows_json <- function(materialized, specs) {
 metric_specs <- function(config) {
   configured <- config$sleep_metrics %||% names(DEFAULT_METRICS)
   if (is.list(configured) && !is.null(names(configured))) {
+    inline_derived <- vapply(configured, function(definition) is.list(definition) && !is.null(definition$formula), logical(1))
+    configured <- configured[!inline_derived]
     return(setNames(lapply(seq_along(configured), function(index) {
       metric <- names(configured)[index]
       aliases <- as.character(unlist(configured[[index]]))
@@ -318,8 +477,8 @@ metric_directions <- function(config, metrics) {
   directions
 }
 
-sleep_rows <- function(materialized, specs) {
-  result <- sleep_rows_json(materialized, specs)
+sleep_rows <- function(materialized, specs, derived_specs) {
+  result <- sleep_rows_json(materialized, specs, derived_specs)
   # Garmin's _sleepData.json files are the authoritative source. CSV files are
   # only a compatibility fallback for exports that do not contain usable JSON.
   if (length(result)) {
@@ -340,10 +499,16 @@ sleep_rows <- function(materialized, specs) {
     for (i in seq_len(nrow(data))) {
       day <- parse_date(data[[date_col]][i]); if (is.na(day)) next
       key <- as.character(day); if (is.null(result[[key]])) result[[key]] <- list()
+      source_values <- setNames(lapply(data[i, , drop = FALSE], parse_number), names(data))
+      base_values <- list()
       for (metric in names(specs)) {
         column <- matched[[metric]]; if (is.na(column)) next
         value <- if (metric == "Sleep_Duration") duration_to_hours(data[[column]][i]) else parse_number(data[[column]][i])
-        if (!is.na(value) && is.null(result[[key]][[metric]])) result[[key]][[metric]] <- value
+        if (!is.na(value)) base_values[[metric]] <- value
+      }
+      metric_values <- evaluate_derived_metrics(source_values, base_values, derived_specs)
+      for (metric in names(metric_values)) {
+        if (is.null(result[[key]][[metric]])) result[[key]][[metric]] <- metric_values[[metric]]
       }
     }
   }
@@ -394,22 +559,25 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
     }
     parsed
   })
-  specs <- metric_specs(config); directions <- metric_directions(config, names(specs))
-  sleep <- timed("sleep parsing", sleep_rows(sleep_materialized, specs))
+  specs <- metric_specs(config)
+  derived_specs <- derived_metric_specs(config)
+  metrics <- c(names(specs), names(derived_specs))
+  directions <- metric_directions(config, metrics)
+  sleep <- timed("sleep parsing", sleep_rows(sleep_materialized, specs, derived_specs))
   excluded <- norm(unlist(config$excluded_activities %||% list())); configured <- as.character(unlist(config$activities %||% list()))
   found <- unique(unlist(lapply(lifestyle, names))); activities <- unique(c(configured, found)); activities <- activities[!norm(activities) %in% excluded]
-  progress("[Lifestyle] Activities to analyse: ", length(activities), "; metrics: ", length(specs))
+  progress("[Lifestyle] Activities to analyse: ", length(activities), "; metrics: ", length(metrics))
   missing_default <- isTRUE(config$missing_activity_is_no %||% TRUE); overrides <- config$missing_activity_is_no_by_activity %||% list()
   days <- seq.Date(start, end, by = "day")
   lifestyle_keys <- format(days, "%Y-%m-%d")
   sleep_keys <- format(days + 1, "%Y-%m-%d")
-  sleep_values <- setNames(lapply(names(specs), function(metric) {
+  sleep_values <- setNames(lapply(metrics, function(metric) {
     vapply(sleep_keys, function(key) {
       value <- sleep[[key]][[metric]]
       if (is.null(value)) NA_real_ else as.numeric(value)
     }, numeric(1))
-  }), names(specs))
-  results <- vector("list", length(sorted_activities <- sort(activities)) * length(specs))
+  }), metrics)
+  results <- vector("list", length(sorted_activities <- sort(activities)) * length(metrics))
   index <- 1L
   analysis_started <- proc.time()[["elapsed"]]
   for (activity_index in seq_along(sorted_activities)) {
@@ -419,7 +587,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
       status <- lifestyle[[key]][[activity]]
       if (isTRUE(status)) TRUE else if (identical(status, FALSE)) FALSE else NA
     }, logical(1))
-    for (metric in names(specs)) {
+    for (metric in metrics) {
     direction <- directions[[metric]]
     override_name <- names(overrides)[norm(names(overrides)) == norm(activity)][1]
     missing_no <- if (length(override_name) && !is.na(override_name)) isTRUE(overrides[[override_name]]) else missing_default
@@ -584,7 +752,7 @@ write_outputs <- function(result, output_dir, config) {
   }
 
   result_metrics <- vapply(result$results, function(x) as.character(x$metric %||% ""), character(1))
-  configured_metrics <- names(metric_specs(config))
+  configured_metrics <- c(names(metric_specs(config)), names(derived_metric_specs(config)))
   metrics <- unique(c(configured_metrics, result_metrics))
   metrics <- metrics[!is.na(metrics) & nzchar(metrics)]
   safe_metric_name <- function(metric) {

@@ -130,6 +130,25 @@ same mapping. Use an empty mapping for a field that should keep its JSON name,
 for example `averageHR:` or `averageSPO2:`. A scalar alias such as
 `averageHR: averageHR` is accepted as well.
 
+Derived sleep metrics can be defined under `derived_sleep_metrics`. A formula
+may reference scalar fields from the Garmin sleep JSON, configured metric names,
+and earlier derived metrics. Supported operators are `+`, `-`, `*`, `/`, and
+parentheses; formulas are evaluated as arithmetic expressions and are never
+executed as R code. For example:
+
+```yaml
+derived_sleep_metrics:
+  DeepSleep_Share:
+    formula: "deepSleepSeconds / (Sleep_Duration * 3600)"
+```
+
+`Sleep_Duration` is normalized to hours, while `deepSleepSeconds` remains in
+seconds. Therefore `deepSleepSeconds / Sleep_Duration` is a seconds-per-sleep-
+hour metric; use the `* 3600` denominator when the desired result is a share.
+For a compact definition, a formula can also be placed directly under
+`sleep_metrics`, for example `DeepSleep_Share: { formula: "..." }`.
+Missing operands and division by zero produce a missing value for that night.
+
 Descriptive statistics are reported per activity/metric for `done` and
 `not_done`. The CSV columns appear in this order directly after each group's
 count: `*_n`, `*_mean`, `*_median`, `*_sd`, `*_interval_low`, and
