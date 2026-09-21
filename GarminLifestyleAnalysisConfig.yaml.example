@@ -10,7 +10,7 @@ sleep_input: ""
 
 # Count dates without a lifestyle entry as a negative observation.
 # Set this to false for activities where absence should be ignored.
-missing_activity_is_no: true
+missing_activity_is_no: false
 missing_activity_is_no_by_activity:
   Meditation: false
 
@@ -34,6 +34,15 @@ sleep_metrics:
   RHR:
     - Ruheherzfrequenz
     - Resting Heart Rate
+
+# Interpretation of significant differences. The standard metrics remain
+# unchanged. Optional metrics can be added to sleep_metrics and configured
+# here; custom metrics not listed here default to higher.
+metric_directions:
+  RHR: lower
+  Stress: lower
+  Restless_Moments: lower
+  Awake_Time: lower
 
 value_interval: 0.80
 confidence_level: 0.95

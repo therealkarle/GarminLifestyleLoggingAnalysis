@@ -39,6 +39,15 @@ options. `output_dir: "Out"` keeps generated results in the repository's
 version control; `.gitignore` already excludes the local config, Garmin
 exports, and output directory.
 
+Metric directions are configured independently under `metric_directions`.
+Use `higher` when a higher value is better and `lower` when a lower value is
+better. The unchanged standard metrics are `Sleep_Score`, `Sleep_Duration`,
+`HRV`, and `RHR`; their defaults are higher, higher, higher, and lower.
+Optional metrics such as `Stress`, `Restless_Moments`, and `Awake_Time` use
+lower by default when they are added to `sleep_metrics`. Custom metrics not
+listed in the defaults use higher. Each result contains `better_is` and
+`interpretation` (`better`, `worse`, or `not_significant`).
+
 Garmin assigns a sleep night to its wake-up date, while LifestyleLogging uses
 the bedtime/start date. The analysis therefore matches a lifestyle entry with
 the sleep record from the following calendar date.

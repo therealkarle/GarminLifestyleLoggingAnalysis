@@ -12,6 +12,17 @@ DEFAULT_METRICS <- list(
   HRV = c("HFV-Status", "HRV", "avgOvernightHrv", "averageOvernightHrv"),
   RHR = c("Ruheherzfrequenz", "Resting Heart Rate", "restingHeartRate", "restingHr")
 )
+# Direction used to interpret a higher or lower metric value. Custom metrics
+# default to "higher" unless they are explicitly configured otherwise.
+DEFAULT_METRIC_DIRECTIONS <- c(
+  Sleep_Score = "higher",
+  Sleep_Duration = "higher",
+  HRV = "higher",
+  RHR = "lower",
+  Stress = "lower",
+  Restless_Moments = "lower",
+  Awake_Time = "lower"
+)
 TRUE_VALUES <- c("true", "yes", "y", "1", "done", "completed", "complete", "ja", "gemacht")
 FALSE_VALUES <- c("false", "no", "n", "0", "not done", "not_done", "nicht gemacht", "nein")
 `%||%` <- function(x, y) if (is.null(x)) y else x
@@ -181,6 +192,24 @@ metric_specs <- function(config) {
   names <- as.character(unlist(configured)); setNames(lapply(names, function(name) DEFAULT_METRICS[[name]] %||% name), names)
 }
 
+metric_directions <- function(config, metrics) {
+  configured <- config$metric_directions %||% list()
+  if (length(configured) && (is.null(names(configured)) || any(!nzchar(names(configured))))) {
+    stop("metric_directions must be a named mapping of metric names to 'higher' or 'lower'.")
+  }
+  directions <- setNames(rep("higher", length(metrics)), metrics)
+  known <- intersect(metrics, names(DEFAULT_METRIC_DIRECTIONS))
+  directions[known] <- unname(DEFAULT_METRIC_DIRECTIONS[known])
+  for (metric in names(configured)) {
+    value <- tolower(trimws(as.character(configured[[metric]])))
+    if (!value %in% c("higher", "lower")) {
+      stop(sprintf("Invalid direction for metric '%s': use 'higher' or 'lower'.", metric))
+    }
+    if (metric %in% metrics) directions[[metric]] <- value
+  }
+  directions
+}
+
 sleep_rows <- function(materialized, specs) {
   result <- sleep_rows_json(materialized, specs)
   csv_files <- source_files(materialized, "\\.csv$")
@@ -234,7 +263,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
     for (activity in names(entries)) lifestyle[[key]][[activity]] <- isTRUE(lifestyle[[key]][[activity]]) || isTRUE(entries[[activity]])
     }
   }
-  specs <- metric_specs(config); sleep <- sleep_rows(sleep_materialized, specs)
+  specs <- metric_specs(config); directions <- metric_directions(config, names(specs)); sleep <- sleep_rows(sleep_materialized, specs)
   excluded <- norm(unlist(config$excluded_activities %||% list())); configured <- as.character(unlist(config$activities %||% list()))
   found <- unique(unlist(lapply(lifestyle, names))); activities <- unique(c(configured, found)); activities <- activities[!norm(activities) %in% excluded]
   progress("[Lifestyle] Activities to analyse: ", length(activities), "; metrics: ", length(specs))
@@ -245,6 +274,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
     activity <- sorted_activities[activity_index]
     progress("[Lifestyle] Activity ", activity_index, "/", length(sorted_activities), ": ", activity)
     for (metric in names(specs)) {
+    direction <- directions[[metric]]
     override_name <- names(overrides)[norm(names(overrides)) == norm(activity)][1]
     missing_no <- if (length(override_name) && !is.na(override_name)) isTRUE(overrides[[override_name]]) else missing_default
     done_values <- native_not_done_values <- assumed_not_done_values <- numeric()
@@ -281,7 +311,8 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
     if (length(done_values) >= 2 && length(not_done_values) >= 2) { delta <- mean(done_values) - mean(not_done_values); test <- stats::t.test(done_values, not_done_values, var.equal = FALSE); p_value <- unname(test$p.value); ci_low <- unname(test$conf.int[1]); ci_high <- unname(test$conf.int[2]) }
     significant <- !is.null(p_value) && p_value < alpha && !is.null(delta) && delta != 0
     classification <- if (significant && delta > 0) "significant_positive" else if (significant && delta < 0) "significant_negative" else "not_significant"
-    results[[index]] <- c(row, list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, significant = significant, classification = classification)); index <- index + 1
+    interpretation <- if (!significant || is.null(delta) || delta == 0) "not_significant" else if ((direction == "higher" && delta > 0) || (direction == "lower" && delta < 0)) "better" else "worse"
+    results[[index]] <- c(row, list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, significant = significant, classification = classification, better_is = direction, interpretation = interpretation)); index <- index + 1
     }
   }
   classifications <- if (length(results)) vapply(results, function(x) as.character(x$classification %||% "not_significant"), character(1)) else character()
@@ -297,7 +328,8 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   )
   progress("[Lifestyle] Statistical analysis finished: ", total_count, " activity/metric combinations")
   progress(sprintf("[Lifestyle] Significance: %d significant (%.1f%%), %d not significant (%.1f%%)", significant_count, significance_summary$significant_percent, not_significant_count, significance_summary$not_significant_percent))
-  list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_level = confidence, significance_level = alpha, method = "Welch two-sample t-test", delta_definition = "mean(done) - mean(not_done)", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary), results = results)
+  interpretation_summary <- if (length(results)) table(vapply(results, function(x) as.character(x$interpretation %||% "not_significant"), character(1))) else integer()
+  list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_level = confidence, significance_level = alpha, method = "Welch two-sample t-test", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
 }
 
 next_run_output_dir <- function(base_dir) {
