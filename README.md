@@ -119,7 +119,11 @@ better. The unchanged standard metrics are `Sleep_Score`, `Sleep_Duration`,
 Optional metrics such as `Stress`, `Restless_Moments`, and `Awake_Time` use
 lower by default when they are added to `sleep_metrics`. Custom metrics not
 listed in the defaults use higher. Each result contains `better_is` and
-`interpretation` (`better`, `worse`, or `not_significant`).
+`interpretation` (`better`, `worse`, or `not_significant`). The classification
+CSVs are direction-aware: `significant_positive` contains significant
+improvements and `significant_negative` contains significant deteriorations.
+For a metric where `lower` is better, a negative `delta` is therefore written
+to the positive CSV.
 
 `sleep_metrics` supports both alias lists and direct JSON field names in the
 same mapping. Use an empty mapping for a field that should keep its JSON name,

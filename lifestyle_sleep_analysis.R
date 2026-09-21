@@ -464,8 +464,11 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
         !is.null(p_value) && length(p_value) == 1L && is.finite(p_value) &&
         p_value < alpha && delta != 0
     )
-    classification <- if (significant && delta > 0) "significant_positive" else if (significant && delta < 0) "significant_negative" else "not_significant"
     interpretation <- if (!significant || is.null(delta) || delta == 0) "not_significant" else if ((direction == "higher" && delta > 0) || (direction == "lower" && delta < 0)) "better" else "worse"
+    # Classification CSVs describe the direction of the outcome, not the
+    # native sign of delta. For metrics where lower is better (for example
+    # RHR), a negative delta is therefore significant_positive.
+    classification <- if (significant && interpretation == "better") "significant_positive" else if (significant && interpretation == "worse") "significant_negative" else "not_significant"
      results[[index]] <- c(row, list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, significant = significant, classification = classification, better_is = direction, interpretation = interpretation)); index <- index + 1
      }
    }
