@@ -158,3 +158,145 @@ count: `*_n`, `*_mean`, `*_median`, `*_sd`, `*_interval_low`, and
 Garmin assigns a sleep night to its wake-up date, while LifestyleLogging uses
 the bedtime/start date. The analysis therefore matches a lifestyle entry with
 the sleep record from the following calendar date.
+
+## Data interpretation and statistical method
+
+For each lifestyle activity and sleep metric, the analysis compares two groups:
+
+- <code>done</code>: The activity was explicitly recorded as completed on that day.
+- <code>not_done</code>: The activity was explicitly recorded as not completed.
+  If <code>missing_activity_is_no: true</code> is set, days without an entry are
+  also treated as assumed non-completion. These cases are reported separately
+  as <code>assumed_not_done_n</code>.
+
+The sleep night is identified by its wake-up date. Therefore, for example, the
+lifestyle entry from January 20 is matched with the sleep night ending on
+January 21. Nights without a usable metric value are excluded from the
+respective statistical calculation.
+
+### What do the reported statistics show?
+
+For both groups, the analysis reports <code>n</code>, mean, median, and standard
+deviation. By default, <code>interval_low</code> and <code>interval_high</code>
+are the 80% quantile interval of the observed values
+(<code>value_interval: 0.80</code>). This interval describes the spread of the
+observed data; it is not a confidence interval for the group mean.
+
+The central difference is always calculated as:
+
+$$
+\Delta = \operatorname{mean}(\text{done}) -
+\operatorname{mean}(\text{not\_done})
+$$
+
+A positive <code>delta</code> therefore means that the metric is higher in the
+<code>done</code> group. Whether this is better or worse depends on
+<code>better_is</code>:
+
+- With <code>better_is: higher</code>, a positive <code>delta</code> is an improvement.
+- With <code>better_is: lower</code>, a negative <code>delta</code> is an improvement,
+  for example for resting heart rate (<code>RHR</code>).
+
+Consequently, <code>significant_positive</code> and
+<code>significant_negative</code> describe the interpreted direction of the
+result, not necessarily the mathematical sign of <code>delta</code>.
+
+### What is the Welch two-sample t-test?
+
+The Welch test assesses whether the means of two groups differ in a
+statistically plausible way without assuming equal variances. This is useful
+here because the number of observations and the variability can differ between
+the <code>done</code> and <code>not_done</code> groups.
+
+For the two groups, the following quantities are used:
+
+$$
+\begin{aligned}
+n_1,\ \bar{x},\ s_1^2 &=
+\text{count, mean, and variance of the done group} \\
+n_2,\ \bar{y},\ s_2^2 &=
+\text{count, mean, and variance of the not\_done group} \\
+\Delta &= \bar{x} - \bar{y}
+\end{aligned}
+$$
+
+The standard error of the difference in means is:
+
+$$
+SE(\Delta) =
+\sqrt{\frac{s_1^2}{n_1} + \frac{s_2^2}{n_2}}
+$$
+
+The test statistic is:
+
+$$
+t = \frac{\bar{x} - \bar{y}}{SE(\Delta)}
+$$
+
+Because equal variances are not assumed, the test uses the
+Welch-Satterthwaite approximation for the degrees of freedom:
+
+$$
+\nu =
+\frac{\left(\frac{s_1^2}{n_1} + \frac{s_2^2}{n_2}\right)^2}
+{\frac{\left(\frac{s_1^2}{n_1}\right)^2}{n_1 - 1}
+ + \frac{\left(\frac{s_2^2}{n_2}\right)^2}{n_2 - 1}}
+$$
+
+The two-sided p-value is obtained from the t-distribution with
+<code>ν</code> degrees of freedom:
+
+$$
+p = 2\left(1 - F_{t,\nu}(|t|)\right)
+$$
+
+The implementation uses R's standard Welch-test implementation:
+
+~~~r
+stats::t.test(done_values, not_done_values,
+              var.equal = FALSE,
+              conf.level = confidence)
+~~~
+
+The test is only run when both groups contain at least two usable observations.
+With <code>significance_level: 0.05</code>, a result is classified as
+significant when <code>p_value &lt; 0.05</code>. The p-value does not indicate
+how large or practically relevant the difference is. That requires considering
+<code>delta</code>, the group means, and the sample sizes as well.
+
+The confidence interval for the difference in means uses the same standard
+error and degrees-of-freedom estimate:
+
+$$
+\Delta \pm t_{1-\alpha/2,\nu}\,SE(\Delta)
+$$
+
+With the default <code>confidence_interval: 0.95</code>, this is a 95%
+confidence interval for <code>mean(done) - mean(not_done)</code>. If the
+interval is entirely above zero, the difference is positive; if it is entirely
+below zero, the difference is negative. The interval and p-value returned by
+the Welch test are written as <code>delta_ci_low</code> and
+<code>delta_ci_high</code>.
+
+### How should a result be interpreted?
+
+<code>interpretation: better</code> means that the difference is statistically
+significant at the configured significance level and points in the direction
+configured as better. <code>worse</code> indicates a significant deterioration.
+<code>not_significant</code> means that the test did not provide sufficient
+evidence for a difference at that significance level; it does not prove that
+the groups are identical.
+
+This is an observational analysis. A significant association does not
+automatically mean that the lifestyle activity caused the change in the sleep
+metric. Training load, illness, bedtime, day of the week, and the decision about
+which days to record an activity can all influence the result. The many
+activity/metric combinations are also not currently adjusted for multiple
+testing. Results should therefore be assessed together with sample size, effect
+size, confidence interval, and subject-matter plausibility rather than by
+looking at the p-value alone.
+
+The Welch test treats the individual nights as independent observations for the
+calculation. For consecutive nights, this assumption may only be approximate;
+the results should therefore be read as evidence of an association, not as
+causal or definitive proof.
