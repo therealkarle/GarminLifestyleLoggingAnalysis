@@ -5,6 +5,13 @@ start_date: "2026-01-01"
 end_date: "2026-12-31"
 # Results are written below this repository's Out/ directory.
 output_dir: "Out"
+# Analysis CSV output groups. Missing values default to true for compatibility
+# with existing configurations.
+analysis_output:
+  all_combined: true
+  all_classifications: true
+  per_metric_combined: true
+  per_metric_classifications: true
 # Inventory output is written below output_dir/available_metrics_and_activities.
 # Each format can be enabled or disabled independently.
 inventory_output:

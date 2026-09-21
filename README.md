@@ -59,6 +59,24 @@ options. `output_dir: "Out"` keeps generated results in the repository's
 version control; `.gitignore` already excludes the local config, Garmin
 exports, and output directory.
 
+The analysis CSV groups can be enabled or disabled independently under
+`analysis_output`. Missing switches default to `true` for compatibility with
+older configurations:
+
+```yaml
+analysis_output:
+  all_combined: true
+  all_classifications: true
+  per_metric_combined: true
+  per_metric_classifications: true
+```
+
+`all_combined` writes `all.csv`; `all_classifications` writes the three
+classification CSVs for all metrics. `per_metric_combined` writes one
+`<metric>_all.csv` file per metric, while `per_metric_classifications` writes
+the three classification CSVs per metric. The JSON result file is always
+written. Each switch must be a single YAML boolean value.
+
 Metric directions are configured independently under `metric_directions`.
 Use `higher` when a higher value is better and `lower` when a lower value is
 better. The unchanged standard metrics are `Sleep_Score`, `Sleep_Duration`,

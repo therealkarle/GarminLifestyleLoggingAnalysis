@@ -417,6 +417,19 @@ write_outputs <- function(result, output_dir, config) {
   output_dir <- next_run_output_dir(output_dir)
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   progress("[Lifestyle] Writing results to: ", normalizePath(output_dir, mustWork = FALSE))
+  analysis_output <- config$analysis_output %||% list()
+  output_enabled <- function(name) {
+    value <- analysis_output[[name]]
+    if (is.null(value)) return(TRUE)
+    if (!is.logical(value) || length(value) != 1L || is.na(value)) {
+      stop(sprintf("analysis_output.%s must be a single true/false value.", name))
+    }
+    isTRUE(value)
+  }
+  write_all_combined <- output_enabled("all_combined")
+  write_all_classifications <- output_enabled("all_classifications")
+  write_per_metric_combined <- output_enabled("per_metric_combined")
+  write_per_metric_classifications <- output_enabled("per_metric_classifications")
   classifications <- c("significant_positive", "significant_negative", "not_significant")
   result_columns <- if (length(result$results)) {
     unique(unlist(lapply(result$results, names), use.names = FALSE))
@@ -447,23 +460,27 @@ write_outputs <- function(result, output_dir, config) {
     not_significant = "all_not_significant"
   )
 
-  # Write one combined export containing every activity/metric result.
-  all_results <- result_frame(result$results, "all")
-  utils::write.csv(
-    all_results,
-    file.path(output_dir, "all.csv"),
-    row.names = FALSE,
-    na = ""
-  )
-
-  for (classification in classifications) {
-    selected <- Filter(function(x) identical(x$classification, classification), result$results)
+  if (write_all_combined) {
+    # Write one combined export containing every activity/metric result.
+    all_results <- result_frame(result$results, "all")
     utils::write.csv(
-      result_frame(selected, classification),
-      file.path(output_dir, paste0(all_metric_file_stems[[classification]], ".csv")),
+      all_results,
+      file.path(output_dir, "all.csv"),
       row.names = FALSE,
       na = ""
     )
+  }
+
+  if (write_all_classifications) {
+    for (classification in classifications) {
+      selected <- Filter(function(x) identical(x$classification, classification), result$results)
+      utils::write.csv(
+        result_frame(selected, classification),
+        file.path(output_dir, paste0(all_metric_file_stems[[classification]], ".csv")),
+        row.names = FALSE,
+        na = ""
+      )
+    }
   }
 
   result_metrics <- vapply(result$results, function(x) as.character(x$metric %||% ""), character(1))
@@ -481,21 +498,25 @@ write_outputs <- function(result, output_dir, config) {
     metric_results <- Filter(function(x) identical(as.character(x$metric %||% ""), metric), result$results)
     metric_stem <- metric_stems[[metric_index]]
 
-    utils::write.csv(
-      result_frame(metric_results, "all"),
-      file.path(output_dir, paste0(metric_stem, "_all.csv")),
-      row.names = FALSE,
-      na = ""
-    )
-
-    for (classification in classifications) {
-      selected <- Filter(function(x) identical(x$classification, classification), metric_results)
+    if (write_per_metric_combined) {
       utils::write.csv(
-        result_frame(selected, classification),
-        file.path(output_dir, paste0(metric_stem, "_", classification, ".csv")),
+        result_frame(metric_results, "all"),
+        file.path(output_dir, paste0(metric_stem, "_all.csv")),
         row.names = FALSE,
         na = ""
       )
+    }
+
+    if (write_per_metric_classifications) {
+      for (classification in classifications) {
+        selected <- Filter(function(x) identical(x$classification, classification), metric_results)
+        utils::write.csv(
+          result_frame(selected, classification),
+          file.path(output_dir, paste0(metric_stem, "_", classification, ".csv")),
+          row.names = FALSE,
+          na = ""
+        )
+      }
     }
   }
   result$config <- config; jsonlite::write_json(result, file.path(output_dir, "lifestyle_sleep_analysis.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")
