@@ -18,6 +18,7 @@ analysis_output:
   all_classifications: true
   per_metric_combined: true
   per_metric_classifications: true
+  json: true
 # Inventory output is written below output_dir/available_metrics_and_activities.
 # Each format can be enabled or disabled independently.
 inventory_output:

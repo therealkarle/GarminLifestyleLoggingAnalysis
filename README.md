@@ -3,7 +3,7 @@
 This repository contains the independent R analysis for comparing Garmin
 LifestyleLogging activities with sleep metrics. It accepts an extracted Garmin
 export directory, a ZIP export, or a direct `LifestyleLogging.json` file and
-writes ranked CSV tables plus a JSON result file.
+writes configurable ranked CSV tables and optionally a JSON result file.
 
 ## Setup
 
@@ -69,6 +69,7 @@ analysis_output:
   all_classifications: true
   per_metric_combined: true
   per_metric_classifications: true
+  json: true
 ```
 
 Performance timing is printed for materialization, lifestyle parsing, sleep
@@ -91,8 +92,9 @@ writing is never used.
 `all_combined` writes `all.csv`; `all_classifications` writes the three
 classification CSVs for all metrics. `per_metric_combined` writes one
 `<metric>_all.csv` file per metric, while `per_metric_classifications` writes
-the three classification CSVs per metric. The JSON result file is always
-written. Each switch must be a single YAML boolean value.
+the three classification CSVs per metric. Set `json: false` to disable the
+`lifestyle_sleep_analysis.json` result file. Missing switches default to
+`true`, and each switch must be a single YAML boolean value.
 
 Metric directions are configured independently under `metric_directions`.
 Use `higher` when a higher value is better and `lower` when a lower value is

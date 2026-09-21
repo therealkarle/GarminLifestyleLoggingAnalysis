@@ -527,6 +527,7 @@ write_outputs <- function(result, output_dir, config) {
   write_all_classifications <- output_enabled("all_classifications")
   write_per_metric_combined <- output_enabled("per_metric_combined")
   write_per_metric_classifications <- output_enabled("per_metric_classifications")
+  write_json_result <- output_enabled("json")
   classifications <- c("significant_positive", "significant_negative", "not_significant")
   result_columns <- if (length(result$results)) {
     unique(unlist(lapply(result$results, names), use.names = FALSE))
@@ -606,7 +607,10 @@ write_outputs <- function(result, output_dir, config) {
       }
     }
   }
-  result$config <- config; jsonlite::write_json(result, file.path(output_dir, "lifestyle_sleep_analysis.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")
+  if (write_json_result) {
+    result$config <- config
+    jsonlite::write_json(result, file.path(output_dir, "lifestyle_sleep_analysis.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")
+  }
   invisible(output_dir)
 }
 
