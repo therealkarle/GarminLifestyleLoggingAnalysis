@@ -261,6 +261,19 @@ sleep_rows_json <- function(materialized, specs) {
         if (is.null(value) && metric == "Sleep_Score") {
           value <- json_scalar_value(scalar_values, c("overallScore"))
         }
+        if (is.null(value) && metric == "Sleep_Duration") {
+          value <- json_scalar_value(scalar_values, c("sleepDuration", "totalSleepTime"))
+        }
+        if (is.null(value) && metric == "Sleep_Duration") {
+          stage_values <- vapply(
+            c("deepSleepSeconds", "lightSleepSeconds", "remSleepSeconds"),
+            function(field) parse_number(json_scalar_value(scalar_values, field)),
+            numeric(1)
+          )
+          if (all(is.finite(stage_values)) && sum(stage_values) > 0) {
+            value <- sum(stage_values) / 3600
+          }
+        }
         if (!is.null(value)) {
           value <- if (metric == "Sleep_Duration") duration_to_hours(value) else parse_number(value)
         } else {
@@ -439,6 +452,9 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
         error = function(e) NULL
       )
       if (!is.null(test)) {
+        # Use the same group estimates as the Welch test. This keeps delta
+        # consistent with its confidence interval and p-value.
+        delta <- unname(test$estimate[[1]] - test$estimate[[2]])
         p_value <- unname(test$p.value)
         ci_low <- unname(test$conf.int[1])
         ci_high <- unname(test$conf.int[2])
