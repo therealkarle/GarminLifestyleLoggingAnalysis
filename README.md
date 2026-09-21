@@ -74,8 +74,8 @@ for example `averageHR:` or `averageSPO2:`. A scalar alias such as
 `averageHR: averageHR` is accepted as well.
 
 Descriptive statistics are reported once per activity/metric for the complete
-sample (`total_mean`, `total_median`, `total_sd`, `total_interval_low`, and
-`total_interval_high`). The group-specific fields contain counts only:
+sample (`not_mean`, `not_median`, `not_sd`, `not_interval_low`, and
+`not_interval_high`). The group-specific fields contain counts only:
 `done_n`, `native_not_done_n`, `assumed_not_done_n`, and `not_done_n`.
 
 Garmin assigns a sleep night to its wake-up date, while LifestyleLogging uses
