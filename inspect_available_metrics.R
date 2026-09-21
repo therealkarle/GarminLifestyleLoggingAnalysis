@@ -78,9 +78,10 @@ read_sleep_inventory <- function(materialized) {
   list(names = names_found, samples = samples, json_files = length(json_files), csv_files = length(csv_files))
 }
 
-read_lifestyle_inventory <- function(materialized, start, end, excluded) {
+read_lifestyle_inventory <- function(materialized, sleep, specs, start, end, excluded) {
   files <- if (!is.null(materialized$direct_json)) materialized$direct_json else source_files(materialized, "LifestyleLogging\\.json$")
   rows <- list()
+  metric_counts <- setNames(lapply(names(specs), function(x) c(n_done = 0L, n_not_done = 0L)), names(specs))
   for (path in files) {
     payload <- tryCatch(read_json(path), error = function(e) NULL)
     parsed <- lifestyle_rows(payload)
@@ -93,10 +94,18 @@ read_lifestyle_inventory <- function(materialized, start, end, excluded) {
         if (is.null(rows[[activity]])) rows[[activity]] <- c(yes = 0L, explicit_no = 0L)
         if (isTRUE(status)) rows[[activity]][["yes"]] <- rows[[activity]][["yes"]] + 1L
         else if (identical(status, FALSE)) rows[[activity]][["explicit_no"]] <- rows[[activity]][["explicit_no"]] + 1L
+
+        sleep_values <- sleep[[sleep_key_for_lifestyle_day(day)]]
+        if (is.null(sleep_values)) next
+        for (metric in names(specs)) {
+          if (is.null(sleep_values[[metric]]) || is.na(sleep_values[[metric]])) next
+          if (isTRUE(status)) metric_counts[[metric]][["n_done"]] <- metric_counts[[metric]][["n_done"]] + 1L
+          else if (identical(status, FALSE)) metric_counts[[metric]][["n_not_done"]] <- metric_counts[[metric]][["n_not_done"]] + 1L
+        }
       }
     }
   }
-  rows
+  list(activity_counts = rows, metric_counts = metric_counts)
 }
 
 format_sample <- function(value) {
@@ -124,9 +133,25 @@ on.exit({
 }, add = TRUE)
 
 sleep_inventory <- read_sleep_inventory(sleep_source)
+specs <- metric_specs(config)
+sleep <- sleep_rows(sleep_source, specs)
 excluded <- norm(unlist(config$excluded_activities %||% list()))
-activity_counts <- read_lifestyle_inventory(lifestyle_source, start, end, excluded)
-output_path <- get_arg("--output") %||% file.path(dirname(config_path), "available_metrics_and_activities.txt")
+inventory <- read_lifestyle_inventory(lifestyle_source, sleep, specs, start, end, excluded)
+activity_counts <- inventory$activity_counts
+metric_counts <- inventory$metric_counts
+
+configured_output_dir <- config$output_dir %||% "Out"
+base_output_dir <- resolve_output_dir(config_path, configured_output_dir)
+inventory_root <- file.path(base_output_dir, "available_metrics_and_activities")
+dir.create(inventory_root, recursive = TRUE, showWarnings = FALSE)
+run_index <- 1L
+while (dir.exists(file.path(inventory_root, paste0(format(Sys.Date(), "%Y-%m-%d"), "_Inventory_", run_index)))) run_index <- run_index + 1L
+output_dir <- file.path(inventory_root, paste0(format(Sys.Date(), "%Y-%m-%d"), "_Inventory_", run_index))
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+inventory_config <- config$inventory_output %||% list()
+write_txt <- if (is.null(inventory_config$txt)) TRUE else isTRUE(inventory_config$txt)
+write_csv <- if (is.null(inventory_config$csv)) TRUE else isTRUE(inventory_config$csv)
 
 configured_metrics <- config$sleep_metrics %||% list()
 configured_metric_lines <- if (is.list(configured_metrics) && length(configured_metrics)) {
@@ -138,40 +163,56 @@ configured_metric_lines <- if (is.list(configured_metrics) && length(configured_
   character()
 }
 
-lines <- c(
-  "Garmin LifestyleLogging analysis inventory",
-  paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+metric_lines <- c(
+  "Garmin LifestyleLogging sleep metrics",
   paste0("Date range: ", start, " to ", end),
-  paste0("Config: ", config_path),
+  "Missing activity entries are ignored.",
   "",
-  "SLEEP METRICS / SOURCE FIELDS",
-  paste0("JSON files scanned: ", sleep_inventory$json_files),
-  paste0("CSV files scanned: ", sleep_inventory$csv_files),
-  "Configured metric mappings:",
-  if (length(configured_metric_lines)) configured_metric_lines else "- None; source fields below can be added to sleep_metrics.",
-  "",
-  "These scalar fields were found in the sleep source and can potentially be mapped under sleep_metrics.",
-  ""
+  "sleep_metric, n_done, n_not_done"
 )
-if (length(sleep_inventory$names)) {
-  lines <- c(lines, vapply(sleep_inventory$names, function(name) {
-    sample <- format_sample(sleep_inventory$samples[[name]])
-    if (nzchar(sample)) paste0("- ", name, " (example: ", sample, ")") else paste0("- ", name)
+if (length(metric_counts)) {
+  metric_lines <- c(metric_lines, vapply(names(metric_counts), function(metric) {
+    counts <- metric_counts[[metric]]
+    paste0(metric, ", ", counts[["n_done"]], ", ", counts[["n_not_done"]])
   }, character(1)))
 } else {
-  lines <- c(lines, "- No scalar sleep fields found.")
+  metric_lines <- c(metric_lines, "No configured sleep metrics found.")
 }
 
-lines <- c(lines, "", "ACTIVITIES / EXPLICIT CHOICES", "Missing activity entries are ignored. Counts are per activity-day after duplicate entries are merged.", "")
+activity_lines <- c(
+  "Garmin LifestyleLogging activities",
+  paste0("Date range: ", start, " to ", end),
+  "Missing activity entries are ignored.",
+  "",
+  "activity, n_done, n_not_done"
+)
 if (length(activity_counts)) {
-  activity_names <- sort(names(activity_counts))
-  lines <- c(lines, vapply(activity_names, function(activity) {
+  activity_lines <- c(activity_lines, vapply(sort(names(activity_counts)), function(activity) {
     counts <- activity_counts[[activity]]
-    paste0("- ", activity, ": yes=", counts[["yes"]], ", explicit_no=", counts[["explicit_no"]])
+    paste0(activity, ", ", counts[["yes"]], ", ", counts[["explicit_no"]])
   }, character(1)))
 } else {
-  lines <- c(lines, "- No explicit activity choices found.")
+  activity_lines <- c(activity_lines, "No explicit activity choices found.")
 }
 
-writeLines(lines, output_path, useBytes = TRUE)
-progress("[Inventory] Wrote: ", normalizePath(output_path, mustWork = FALSE))
+if (write_txt) {
+  writeLines(metric_lines, file.path(output_dir, "sleep_metrics.txt"), useBytes = TRUE)
+  writeLines(activity_lines, file.path(output_dir, "activities.txt"), useBytes = TRUE)
+}
+
+if (write_csv) {
+  metric_frame <- if (length(metric_counts)) {
+    do.call(rbind, lapply(names(metric_counts), function(metric) {
+      data.frame(sleep_metric = metric, n_done = metric_counts[[metric]][["n_done"]], n_not_done = metric_counts[[metric]][["n_not_done"]], stringsAsFactors = FALSE)
+    }))
+  } else data.frame(sleep_metric = character(), n_done = integer(), n_not_done = integer())
+  activity_frame <- if (length(activity_counts)) {
+    do.call(rbind, lapply(sort(names(activity_counts)), function(activity) {
+      data.frame(activity = activity, n_done = activity_counts[[activity]][["yes"]], n_not_done = activity_counts[[activity]][["explicit_no"]], stringsAsFactors = FALSE)
+    }))
+  } else data.frame(activity = character(), n_done = integer(), n_not_done = integer())
+  utils::write.csv(metric_frame, file.path(output_dir, "sleep_metrics.csv"), row.names = FALSE, na = "")
+  utils::write.csv(activity_frame, file.path(output_dir, "activities.csv"), row.names = FALSE, na = "")
+}
+
+progress("[Inventory] Output directory: ", normalizePath(output_dir, mustWork = FALSE))

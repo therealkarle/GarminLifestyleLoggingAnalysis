@@ -38,10 +38,13 @@ activity choices, run:
 Rscript inspect_available_metrics.R --config GarminLifestyleAnalysisConfig.yaml
 ```
 
-This writes `available_metrics_and_activities.txt` next to the config. The
-activity counts include only explicitly selected `yes` and explicitly
-selected `no` values; missing activity entries are ignored, regardless of
-`missing_activity_is_no`.
+This creates a separate dated folder below
+`Out/available_metrics_and_activities/`. It contains `sleep_metrics.txt` and
+`activities.txt` plus the corresponding CSV files. Set
+`inventory_output: { txt: false }` or `inventory_output: { csv: false }` in
+the config to disable either format. The activity counts include only explicitly selected
+`yes` and explicitly selected `no` values; missing activity entries are
+ignored, regardless of `missing_activity_is_no`.
 
 ## Configuration
 

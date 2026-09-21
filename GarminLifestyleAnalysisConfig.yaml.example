@@ -5,6 +5,11 @@ start_date: "2026-01-01"
 end_date: "2026-12-31"
 # Results are written below this repository's Out/ directory.
 output_dir: "Out"
+# Inventory output is written below output_dir/available_metrics_and_activities.
+# Each format can be enabled or disabled independently.
+inventory_output:
+  txt: true
+  csv: true
 # Optional separate source when input_path points directly to LifestyleLogging.json.
 sleep_input: ""
 
