@@ -217,20 +217,11 @@ configured_metric_lines <- if (is.list(configured_metrics) && length(configured_
   character()
 }
 
-metric_lines <- c(
-  "Garmin LifestyleLogging sleep metrics",
-  paste0("Date range: ", start, " to ", end),
-  "Missing activity entries are ignored.",
-  "",
-  "sleep_metric, n_done, n_not_done"
-)
+metric_lines <- character()
 if (length(metric_counts)) {
-  metric_lines <- c(metric_lines, vapply(names(metric_counts), function(metric) {
-    counts <- metric_counts[[metric]]
-    paste0(metric, ", ", counts[["n_done"]], ", ", counts[["n_not_done"]])
-  }, character(1)))
+  metric_lines <- names(metric_counts)
 } else {
-  metric_lines <- c(metric_lines, "No configured sleep metrics found.")
+  metric_lines <- "No sleep metrics found."
 }
 
 activity_lines <- c(
@@ -238,12 +229,12 @@ activity_lines <- c(
   paste0("Date range: ", start, " to ", end),
   "Missing activity entries are ignored.",
   "",
-  "activity, n_done, n_not_done"
+  "activity, n_done, n_not_done, n_total"
 )
 if (length(activity_counts)) {
   activity_lines <- c(activity_lines, vapply(sort(names(activity_counts)), function(activity) {
     counts <- activity_counts[[activity]]
-    paste0(activity, ", ", counts[["yes"]], ", ", counts[["explicit_no"]])
+    paste0(activity, ", ", counts[["yes"]], ", ", counts[["explicit_no"]], ", ", counts[["yes"]] + counts[["explicit_no"]])
   }, character(1)))
 } else {
   activity_lines <- c(activity_lines, "No explicit activity choices found.")
@@ -255,17 +246,13 @@ if (write_txt) {
 }
 
 if (write_csv) {
-  metric_frame <- if (length(metric_counts)) {
-    do.call(rbind, lapply(names(metric_counts), function(metric) {
-      data.frame(sleep_metric = metric, n_done = metric_counts[[metric]][["n_done"]], n_not_done = metric_counts[[metric]][["n_not_done"]], stringsAsFactors = FALSE)
-    }))
-  } else data.frame(sleep_metric = character(), n_done = integer(), n_not_done = integer())
   activity_frame <- if (length(activity_counts)) {
     do.call(rbind, lapply(sort(names(activity_counts)), function(activity) {
-      data.frame(activity = activity, n_done = activity_counts[[activity]][["yes"]], n_not_done = activity_counts[[activity]][["explicit_no"]], stringsAsFactors = FALSE)
+      n_done <- activity_counts[[activity]][["yes"]]
+      n_not_done <- activity_counts[[activity]][["explicit_no"]]
+      data.frame(activity = activity, n_done = n_done, n_not_done = n_not_done, n_total = n_done + n_not_done, stringsAsFactors = FALSE)
     }))
-  } else data.frame(activity = character(), n_done = integer(), n_not_done = integer())
-  utils::write.csv(metric_frame, file.path(output_dir, "sleep_metrics.csv"), row.names = FALSE, na = "")
+  } else data.frame(activity = character(), n_done = integer(), n_not_done = integer(), n_total = integer())
   utils::write.csv(activity_frame, file.path(output_dir, "activities.csv"), row.names = FALSE, na = "")
 }
 
