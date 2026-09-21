@@ -18,6 +18,17 @@ Copy `GarminLifestyleAnalysisConfig.yaml.example` to
 exclusions, metrics, and output directory. Relative paths are resolved from
 the repository directory. The personal config is ignored by Git.
 
+## Download Garmin data
+
+1. Sign in to your Garmin account and open the [Garmin Account Data Management page](https://www.garmin.com/account/datamanagement/).
+2. Request an export of your account data and wait for Garmin's confirmation email. The export can take some time to become available.
+3. Download the provided ZIP archive and extract it locally. Keep the extracted export outside version control.
+4. Point `input_path` in `GarminLifestyleAnalysisConfig.yaml` to the extracted export directory, the ZIP file, or the direct `LifestyleLogging.json` file.
+
+The analysis accepts all three input forms. Do not commit personal Garmin data,
+the downloaded ZIP archive, or generated results to the repository; the local
+config, Garmin exports, and output directory are already ignored by Git.
+
 ## Run
 
 From the repository directory:
@@ -25,6 +36,11 @@ From the repository directory:
 ```sh
 Rscript lifestyle_sleep_analysis.R --config GarminLifestyleAnalysisConfig.yaml
 ```
+
+Alternatively, open `lifestyle_sleep_analysis.R` in RStudio and click
+`Source`. In that case, make sure `GarminLifestyleAnalysisConfig.yaml` is in
+the repository directory or adjust the configuration path in the script as
+needed.
 
 The script creates a new run directory below the configured output directory,
 for example `Out/2026-09-21_Analysis_1/`. It writes the combined and
