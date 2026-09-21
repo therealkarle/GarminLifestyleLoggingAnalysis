@@ -15,8 +15,8 @@ Rscript -e "install.packages(c('yaml', 'jsonlite'))"
 
 Copy `GarminLifestyleAnalysisConfig.yaml.example` to
 `GarminLifestyleAnalysisConfig.yaml` and configure the input path, dates,
-exclusions, metrics, and output directory. The personal config is ignored by
-Git.
+exclusions, metrics, and output directory. Relative paths are resolved from
+the repository directory. The personal config is ignored by Git.
 
 ## Run
 
@@ -26,11 +26,19 @@ From the repository directory:
 Rscript lifestyle_sleep_analysis.R --config GarminLifestyleAnalysisConfig.yaml
 ```
 
-The script creates a new run directory below the configured output directory.
-It writes the ranked CSV files and `lifestyle_sleep_analysis.json` there.
+The script creates a new run directory below the configured output directory,
+for example `Out/2026-09-21_Analysis_1/`. It writes the combined and
+per-metric ranked CSV files and `lifestyle_sleep_analysis.json` there. Each
+run is kept in its own directory so earlier results are not overwritten.
 
 ## Configuration
 
 The example configuration documents the supported input formats and analysis
-options. Keep exported Garmin data and generated output outside version
-control; `.gitignore` already excludes the local config and output directory.
+options. `output_dir: "Out"` keeps generated results in the repository's
+`Out/` directory. Keep exported Garmin data and generated output outside
+version control; `.gitignore` already excludes the local config, Garmin
+exports, and output directory.
+
+Garmin assigns a sleep night to its wake-up date, while LifestyleLogging uses
+the bedtime/start date. The analysis therefore matches a lifestyle entry with
+the sleep record from the following calendar date.

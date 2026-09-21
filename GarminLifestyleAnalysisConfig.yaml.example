@@ -1,22 +1,26 @@
-# Independent Garmin LifestyleLogging/sleep analysis configuration.
+# Garmin LifestyleLogging/sleep analysis configuration.
+# Relative input and output paths are resolved from the repository directory.
 input_path: "GarminUserData/2026.04"
 start_date: "2026-01-01"
 end_date: "2026-12-31"
-output_dir: "LifestyleLoggingAnalysis/Out"
-# Optional when --input points directly to LifestyleLogging.json.
+# Results are written below this repository's Out/ directory.
+output_dir: "Out"
+# Optional separate source when input_path points directly to LifestyleLogging.json.
 sleep_input: ""
 
-# Include dates where an activity is absent as a negative observation.
+# Count dates without a lifestyle entry as a negative observation.
+# Set this to false for activities where absence should be ignored.
 missing_activity_is_no: true
 missing_activity_is_no_by_activity:
   Meditation: false
 
-# Optional. Without this list all activities found in LifestyleLogging.json are used.
+# Optional. When empty, all activities found in LifestyleLogging.json are used.
 activities: []
+# Activity names listed here are excluded from the analysis.
 excluded_activities:
   - Example activity to exclude
 
-# Either a list of known metric names or a mapping to source-column aliases.
+# Sleep metrics to analyze, mapped to accepted Garmin CSV/JSON field names.
 sleep_metrics:
   Sleep_Score:
     - Score
