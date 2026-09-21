@@ -126,12 +126,11 @@ same mapping. Use an empty mapping for a field that should keep its JSON name,
 for example `averageHR:` or `averageSPO2:`. A scalar alias such as
 `averageHR: averageHR` is accepted as well.
 
-Descriptive statistics are reported per activity/metric for `done`, `not_done`,
-and the complete sample. For `done` and `not_done`, the CSV columns appear in
-this order directly after each group's count: `*_n`, `*_mean`, `*_median`,
-`*_sd`, `*_interval_low`, and `*_interval_high`. The native/assumed breakdown
-contains counts only: `native_not_done_n` and `assumed_not_done_n`. The
-combined-sample fields keep the `not_` prefix for compatibility.
+Descriptive statistics are reported per activity/metric for `done` and
+`not_done`. The CSV columns appear in this order directly after each group's
+count: `*_n`, `*_mean`, `*_median`, `*_sd`, `*_interval_low`, and
+`*_interval_high`. The native/assumed breakdown contains counts only:
+`native_not_done_n` and `assumed_not_done_n`.
 
 Garmin assigns a sleep night to its wake-up date, while LifestyleLogging uses
 the bedtime/start date. The analysis therefore matches a lifestyle entry with

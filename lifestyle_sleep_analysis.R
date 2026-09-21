@@ -429,10 +429,9 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
     native_not_done_values <- values[usable & !status_values & !is.na(status_values)]
     assumed_not_done_values <- if (missing_no) values[usable & is.na(status_values)] else numeric()
     not_done_values <- c(native_not_done_values, assumed_not_done_values)
-    # Report descriptive statistics for each comparison group and the complete
-    # sample. The group-specific fields are intentionally kept together so the
-    # CSV export can place mean/median/sd/interval directly after each n.
-    total <- group_stats(c(done_values, not_done_values), interval)
+    # Report descriptive statistics for each comparison group. The fields are
+    # intentionally kept together so the CSV export places mean/median/sd/
+    # interval directly after each group's n.
     done <- group_stats(done_values, interval)
     native_not_done <- group_count(native_not_done_values)
     assumed_not_done <- group_count(assumed_not_done_values)
@@ -442,8 +441,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
       setNames(done, paste0("done_", names(done))),
       setNames(native_not_done, paste0("native_not_done_", names(native_not_done))),
       setNames(assumed_not_done, paste0("assumed_not_done_", names(assumed_not_done))),
-      setNames(not_done, paste0("not_done_", names(not_done))),
-      setNames(total, paste0("not_", names(total)))
+      setNames(not_done, paste0("not_done_", names(not_done)))
     )
     delta <- p_value <- ci_low <- ci_high <- NULL
     if (length(done_values) >= 2 && length(not_done_values) >= 2) {
@@ -487,7 +485,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   progress("[Lifestyle] Statistical analysis finished: ", total_count, " activity/metric combinations")
   progress(sprintf("[Lifestyle] Significance: %d significant (%.1f%%), %d not significant (%.1f%%)", significant_count, significance_summary$significant_percent, not_significant_count, significance_summary$not_significant_percent))
   interpretation_summary <- if (length(results)) table(vapply(results, function(x) as.character(x$interpretation %||% "not_significant"), character(1))) else integer()
-    list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_interval = confidence, significance_level = alpha, method = "Welch two-sample t-test", descriptive_statistics = "mean, median, sd, interval_low, and interval_high are calculated for done, not_done, and the combined sample; CSV fields are grouped directly after their corresponding n", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
+    list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_interval = confidence, significance_level = alpha, method = "Welch two-sample t-test", descriptive_statistics = "mean, median, sd, interval_low, and interval_high are calculated separately for done and not_done; CSV fields are grouped directly after their corresponding n", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
 }
 
 next_run_output_dir <- function(base_dir) {
