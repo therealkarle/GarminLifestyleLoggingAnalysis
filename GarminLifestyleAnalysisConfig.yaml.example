@@ -5,6 +5,12 @@ start_date: "2026-01-01"
 end_date: "2026-12-31"
 # Results are written below this repository's Out/ directory.
 output_dir: "Out"
+# Performance optimizations are enabled by default. Keep the backend serial
+# unless a benchmark on a larger export proves parallel execution beneficial.
+performance:
+  enabled: true
+  workers: 1
+  backend: serial
 # Analysis CSV output groups. Missing values default to true for compatibility
 # with existing configurations.
 analysis_output:

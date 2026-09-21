@@ -71,6 +71,23 @@ analysis_output:
   per_metric_classifications: true
 ```
 
+Performance timing is printed for materialization, lifestyle parsing, sleep
+parsing, statistical analysis, and output generation. The optimized parsing
+and lookup path is enabled by default. An optional configuration block is
+available for larger exports:
+
+```yaml
+performance:
+  enabled: true
+  workers: 1
+  backend: serial
+```
+
+`workers` and `backend: parallel` are accepted for forward-compatible
+benchmarking, but execution remains deterministic and serial until a real
+export demonstrates a reliable benefit from parallel workers. Parallel file
+writing is never used.
+
 `all_combined` writes `all.csv`; `all_classifications` writes the three
 classification CSVs for all metrics. `per_metric_combined` writes one
 `<metric>_all.csv` file per metric, while `per_metric_classifications` writes

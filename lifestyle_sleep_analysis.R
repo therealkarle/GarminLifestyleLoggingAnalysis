@@ -31,6 +31,14 @@ progress <- function(...) {
   flush.console()
 }
 
+timed <- function(stage, expression) {
+  started <- proc.time()[["elapsed"]]
+  value <- force(expression)
+  elapsed <- proc.time()[["elapsed"]] - started
+  progress(sprintf("[Lifestyle] Timing %-24s %.3f s", paste0(stage, ":"), elapsed))
+  value
+}
+
 # Garmin assigns a sleep night to the day it ends (the wake-up day), while
 # LifestyleLogging assigns an entry to the day it starts (the bedtime day).
 # Keep this boundary explicit so both sources refer to the same night.
@@ -73,6 +81,36 @@ duration_to_hours <- function(x) {
 }
 
 read_json <- function(path) jsonlite::fromJSON(path, simplifyVector = FALSE)
+
+# Flatten scalar JSON fields once per sleep record. The previous implementation
+# recursively searched the complete record once for every configured metric.
+json_scalar_values <- function(value, result = list()) {
+  if (!is.list(value)) return(result)
+  for (name in names(value)) {
+    child <- value[[name]]
+    if (is.list(child)) {
+      result <- json_scalar_values(child, result)
+    } else if (is.null(result[[name]])) {
+      result[[name]] <- child
+    }
+  }
+  result
+}
+
+json_scalar_value <- function(values, aliases) {
+  if (!length(values) || !length(aliases)) return(NULL)
+  names_values <- names(values)
+  for (alias in as.character(aliases)) {
+    exact <- match(alias, names_values, nomatch = 0L)
+    if (exact) return(values[[exact]])
+  }
+  normalized <- norm(names_values)
+  for (alias in as.character(aliases)) {
+    match_index <- match(norm(alias), normalized, nomatch = 0L)
+    if (match_index) return(values[[match_index]])
+  }
+  NULL
+}
 
 find_daily_logs <- function(value) {
   if (is.list(value) && !is.null(value$dailyLogList) && is.list(value$dailyLogList)) return(value$dailyLogList)
@@ -217,8 +255,17 @@ sleep_rows_json <- function(materialized, specs) {
       day <- parse_date(entry$calendarDate %||% entry$date)
       if (is.na(day)) next
       key <- as.character(day); if (is.null(result[[key]])) result[[key]] <- list()
+      scalar_values <- json_scalar_values(entry)
       for (metric in names(specs)) {
-        value <- sleep_json_value(entry, metric, specs[[metric]])
+        value <- json_scalar_value(scalar_values, specs[[metric]])
+        if (is.null(value) && metric == "Sleep_Score") {
+          value <- json_scalar_value(scalar_values, c("overallScore"))
+        }
+        if (!is.null(value)) {
+          value <- if (metric == "Sleep_Duration") duration_to_hours(value) else parse_number(value)
+        } else {
+          value <- NA_real_
+        }
         if (!is.na(value) && is.null(result[[key]][[metric]])) result[[key]][[metric]] <- value
       }
     }
@@ -306,51 +353,66 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   if (is.na(start) || is.na(end) || end < start) stop("Config requires valid start_date and end_date with end_date >= start_date")
   interval <- as.numeric(config$value_interval %||% 0.80); confidence <- as.numeric(config$confidence_interval %||% config$confidence_level %||% 0.95); alpha <- as.numeric(config$significance_level %||% 0.05)
   if (!(interval > 0 && interval <= 1 && confidence > 0 && confidence < 1 && alpha > 0 && alpha < 1)) stop("Invalid value_interval, confidence_interval, or significance_level")
+  performance <- config$performance %||% list()
+  performance_enabled <- if (is.null(performance$enabled)) TRUE else isTRUE(performance$enabled)
+  workers <- as.integer(performance$workers %||% 1L)
+  backend <- tolower(as.character(performance$backend %||% "serial"))
+  if (length(workers) != 1L || is.na(workers) || workers < 1L) stop("performance.workers must be a positive integer")
+  if (!backend %in% c("serial", "parallel")) stop("performance.backend must be 'serial' or 'parallel'")
+  if (backend == "parallel" && workers > 1L) {
+    progress("[Lifestyle] Parallel backend requested; using deterministic serial execution until benchmark validation enables it.")
+  }
+  if (!performance_enabled) progress("[Lifestyle] Performance optimizations disabled in configuration.")
   lifestyle_files <- if (!is.null(lifestyle_materialized$direct_json)) lifestyle_materialized$direct_json else source_files(lifestyle_materialized, "LifestyleLogging\\.json$")
   if (!length(lifestyle_files)) stop("No LifestyleLogging.json found in Garmin export")
   progress("[Lifestyle] Reading ", length(lifestyle_files), " LifestyleLogging JSON file(s)...")
-  lifestyle <- list()
-  for (path in lifestyle_files) {
-    progress("[Lifestyle] Reading lifestyle file: ", path)
-    rows <- lifestyle_rows(read_json(path))
-    for (key in names(rows)) {
-    if (is.null(lifestyle[[key]])) lifestyle[[key]] <- list()
-    entries <- rows[[key]]
-    for (activity in names(entries)) lifestyle[[key]][[activity]] <- isTRUE(lifestyle[[key]][[activity]]) || isTRUE(entries[[activity]])
+  lifestyle <- timed("lifestyle parsing", {
+    parsed <- list()
+    for (path in lifestyle_files) {
+      progress("[Lifestyle] Reading lifestyle file: ", path)
+      rows <- lifestyle_rows(read_json(path))
+      for (key in names(rows)) {
+        if (is.null(parsed[[key]])) parsed[[key]] <- list()
+        entries <- rows[[key]]
+        for (activity in names(entries)) parsed[[key]][[activity]] <- isTRUE(parsed[[key]][[activity]]) || isTRUE(entries[[activity]])
+      }
     }
-  }
-  specs <- metric_specs(config); directions <- metric_directions(config, names(specs)); sleep <- sleep_rows(sleep_materialized, specs)
+    parsed
+  })
+  specs <- metric_specs(config); directions <- metric_directions(config, names(specs))
+  sleep <- timed("sleep parsing", sleep_rows(sleep_materialized, specs))
   excluded <- norm(unlist(config$excluded_activities %||% list())); configured <- as.character(unlist(config$activities %||% list()))
   found <- unique(unlist(lapply(lifestyle, names))); activities <- unique(c(configured, found)); activities <- activities[!norm(activities) %in% excluded]
   progress("[Lifestyle] Activities to analyse: ", length(activities), "; metrics: ", length(specs))
   missing_default <- isTRUE(config$missing_activity_is_no %||% TRUE); overrides <- config$missing_activity_is_no_by_activity %||% list()
-  days <- seq.Date(start, end, by = "day"); results <- list(); index <- 1
-  sorted_activities <- sort(activities)
+  days <- seq.Date(start, end, by = "day")
+  lifestyle_keys <- format(days, "%Y-%m-%d")
+  sleep_keys <- format(days + 1, "%Y-%m-%d")
+  sleep_values <- setNames(lapply(names(specs), function(metric) {
+    vapply(sleep_keys, function(key) {
+      value <- sleep[[key]][[metric]]
+      if (is.null(value)) NA_real_ else as.numeric(value)
+    }, numeric(1))
+  }), names(specs))
+  results <- vector("list", length(sorted_activities <- sort(activities)) * length(specs))
+  index <- 1L
+  analysis_started <- proc.time()[["elapsed"]]
   for (activity_index in seq_along(sorted_activities)) {
     activity <- sorted_activities[activity_index]
     progress("[Lifestyle] Activity ", activity_index, "/", length(sorted_activities), ": ", activity)
+    status_values <- vapply(lifestyle_keys, function(key) {
+      status <- lifestyle[[key]][[activity]]
+      if (isTRUE(status)) TRUE else if (identical(status, FALSE)) FALSE else NA
+    }, logical(1))
     for (metric in names(specs)) {
     direction <- directions[[metric]]
     override_name <- names(overrides)[norm(names(overrides)) == norm(activity)][1]
     missing_no <- if (length(override_name) && !is.na(override_name)) isTRUE(overrides[[override_name]]) else missing_default
-    done_values <- native_not_done_values <- assumed_not_done_values <- numeric()
-    for (day in days) {
-      # Iterating over a Date vector strips its Date class in base R, so
-      # as.character(day) would produce the internal day number (e.g. 20349)
-      # instead of the ISO keys used by the imported JSON data.
-      lifestyle_day_key <- format(as.Date(day, origin = "1970-01-01"), "%Y-%m-%d")
-      sleep_day_key <- sleep_key_for_lifestyle_day(day)
-      value <- sleep[[sleep_day_key]][[metric]] %||% NA_real_; if (is.null(value) || is.na(value)) next
-      status <- lifestyle[[lifestyle_day_key]][[activity]] %||% NA
-      if (is.na(status)) {
-        if (!missing_no) next
-        assumed_not_done_values <- c(assumed_not_done_values, value)
-      } else if (isTRUE(status)) {
-        done_values <- c(done_values, value)
-      } else {
-        native_not_done_values <- c(native_not_done_values, value)
-      }
-    }
+    values <- sleep_values[[metric]]
+    usable <- !is.na(values)
+    done_values <- values[usable & status_values]
+    native_not_done_values <- values[usable & !status_values & !is.na(status_values)]
+    assumed_not_done_values <- if (missing_no) values[usable & is.na(status_values)] else numeric()
     not_done_values <- c(native_not_done_values, assumed_not_done_values)
     # Report descriptive statistics once for the complete sample. Keep only
     # the group counts separate so the comparison groups remain transparent.
@@ -372,9 +434,11 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
     significant <- !is.null(p_value) && p_value < alpha && !is.null(delta) && delta != 0
     classification <- if (significant && delta > 0) "significant_positive" else if (significant && delta < 0) "significant_negative" else "not_significant"
     interpretation <- if (!significant || is.null(delta) || delta == 0) "not_significant" else if ((direction == "higher" && delta > 0) || (direction == "lower" && delta < 0)) "better" else "worse"
-    results[[index]] <- c(row, list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, significant = significant, classification = classification, better_is = direction, interpretation = interpretation)); index <- index + 1
-    }
-  }
+     results[[index]] <- c(row, list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, significant = significant, classification = classification, better_is = direction, interpretation = interpretation)); index <- index + 1
+     }
+   }
+  results <- Filter(Negate(is.null), results)
+  progress(sprintf("[Lifestyle] Timing statistical analysis: %.3f s", proc.time()[["elapsed"]] - analysis_started))
   classifications <- if (length(results)) vapply(results, function(x) as.character(x$classification %||% "not_significant"), character(1)) else character()
   significant_count <- sum(classifications %in% c("significant_positive", "significant_negative"))
   not_significant_count <- sum(classifications == "not_significant")
@@ -444,13 +508,24 @@ write_outputs <- function(result, output_dir, config) {
   result_frame <- function(selected, classification) {
     if (length(selected)) {
       frame <- do.call(rbind, lapply(selected, function(x) as.data.frame(lapply(x, function(v) if (is.null(v)) NA else v), stringsAsFactors = FALSE)))
-      deltas <- as.numeric(frame$delta)
-      frame <- frame[order(is.na(deltas), if (classification == "significant_negative") deltas else -deltas, na.last = TRUE), , drop = FALSE]
     } else {
       frame <- as.data.frame(setNames(replicate(length(csv_columns), character(), simplify = FALSE), csv_columns), stringsAsFactors = FALSE)
     }
+    frame
+  }
+  sort_frame <- function(frame, classification) {
+    if (!nrow(frame)) return(frame[, csv_columns, drop = FALSE])
+    deltas <- as.numeric(frame$delta)
+    frame <- frame[order(is.na(deltas), if (classification == "significant_negative") deltas else -deltas, na.last = TRUE), , drop = FALSE]
     frame[, csv_columns, drop = FALSE]
   }
+  write_frame <- function(frame, path, classification = "all") {
+    utils::write.csv(sort_frame(frame, classification), path, row.names = FALSE, na = "")
+  }
+
+  # Convert result lists to a data frame once. All subsequent exports filter
+  # this frame instead of rebuilding and coercing the same result lists.
+  all_frame <- result_frame(result$results, "all")
 
   # Write the all-metrics files with an explicit `all_` prefix so they cannot
   # be confused with the per-metric exports written below.
@@ -462,24 +537,13 @@ write_outputs <- function(result, output_dir, config) {
 
   if (write_all_combined) {
     # Write one combined export containing every activity/metric result.
-    all_results <- result_frame(result$results, "all")
-    utils::write.csv(
-      all_results,
-      file.path(output_dir, "all.csv"),
-      row.names = FALSE,
-      na = ""
-    )
+    write_frame(all_frame, file.path(output_dir, "all.csv"))
   }
 
   if (write_all_classifications) {
     for (classification in classifications) {
-      selected <- Filter(function(x) identical(x$classification, classification), result$results)
-      utils::write.csv(
-        result_frame(selected, classification),
-        file.path(output_dir, paste0(all_metric_file_stems[[classification]], ".csv")),
-        row.names = FALSE,
-        na = ""
-      )
+      selected <- if ("classification" %in% names(all_frame)) all_frame[all_frame$classification == classification, , drop = FALSE] else all_frame[FALSE, , drop = FALSE]
+      write_frame(selected, file.path(output_dir, paste0(all_metric_file_stems[[classification]], ".csv")), classification)
     }
   }
 
@@ -495,27 +559,17 @@ write_outputs <- function(result, output_dir, config) {
   metric_stems <- make.unique(vapply(metrics, safe_metric_name, character(1)), sep = "_")
   for (metric_index in seq_along(metrics)) {
     metric <- metrics[[metric_index]]
-    metric_results <- Filter(function(x) identical(as.character(x$metric %||% ""), metric), result$results)
+    metric_results <- if ("metric" %in% names(all_frame)) all_frame[as.character(all_frame$metric) == metric, , drop = FALSE] else all_frame[FALSE, , drop = FALSE]
     metric_stem <- metric_stems[[metric_index]]
 
     if (write_per_metric_combined) {
-      utils::write.csv(
-        result_frame(metric_results, "all"),
-        file.path(output_dir, paste0(metric_stem, "_all.csv")),
-        row.names = FALSE,
-        na = ""
-      )
+      write_frame(metric_results, file.path(output_dir, paste0(metric_stem, "_all.csv")))
     }
 
     if (write_per_metric_classifications) {
       for (classification in classifications) {
-        selected <- Filter(function(x) identical(x$classification, classification), metric_results)
-        utils::write.csv(
-          result_frame(selected, classification),
-          file.path(output_dir, paste0(metric_stem, "_", classification, ".csv")),
-          row.names = FALSE,
-          na = ""
-        )
+        selected <- if ("classification" %in% names(metric_results)) metric_results[metric_results$classification == classification, , drop = FALSE] else metric_results[FALSE, , drop = FALSE]
+        write_frame(selected, file.path(output_dir, paste0(metric_stem, "_", classification, ".csv")), classification)
       }
     }
   }
@@ -549,14 +603,16 @@ run_lifestyle_analysis <- function(config_path = NULL, input_override = NULL, sl
   sleep_input <- sleep_input_override %||% config$sleep_input
   if (is.null(input_path) || !nzchar(input_path)) stop("Set input_path in the config or provide input_override")
   if (is.null(sleep_input) || !nzchar(sleep_input)) sleep_input <- input_path
-  lifestyle_source <- materialize_source(input_path); sleep_source <- materialize_source(sleep_input)
+  lifestyle_source <- NULL; sleep_source <- NULL
   on.exit({
-    if (lifestyle_source$cleanup) unlink(lifestyle_source$root, recursive = TRUE)
-    if (sleep_source$cleanup && !identical(sleep_source$root, lifestyle_source$root)) unlink(sleep_source$root, recursive = TRUE)
+    if (!is.null(lifestyle_source) && lifestyle_source$cleanup) unlink(lifestyle_source$root, recursive = TRUE)
+    if (!is.null(sleep_source) && sleep_source$cleanup && !identical(sleep_source$root, lifestyle_source$root)) unlink(sleep_source$root, recursive = TRUE)
   }, add = TRUE)
-  result <- analyse(config, lifestyle_source, sleep_source)
+  lifestyle_source <- timed("materialization", materialize_source(input_path))
+  sleep_source <- if (identical(sleep_input, input_path)) lifestyle_source else timed("sleep materialization", materialize_source(sleep_input))
+  result <- timed("analysis", analyse(config, lifestyle_source, sleep_source))
   output_dir <- resolve_output_dir(config_path, config$output_dir %||% "LifestyleLoggingAnalysis/Out")
-  write_outputs(result, output_dir, config)
+  timed("output", write_outputs(result, output_dir, config))
   progress("[Lifestyle] Analysed ", length(result$results), " activity/metric combinations")
   invisible(result)
 }
