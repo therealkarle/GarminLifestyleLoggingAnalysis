@@ -44,7 +44,9 @@ This creates a separate dated folder below
 `inventory_output: { txt: false }` or `inventory_output: { csv: false }` in
 the config to disable either format. The activity counts include only explicitly selected
 `yes` and explicitly selected `no` values; missing activity entries are
-ignored, regardless of `missing_activity_is_no`.
+ignored, regardless of `missing_activity_is_no`. Sleep metrics are discovered
+from all scalar fields in Garmin `_sleepData.json` records and sleep-named CSV
+files, including fields that are not yet listed in `sleep_metrics`.
 
 ## Configuration
 

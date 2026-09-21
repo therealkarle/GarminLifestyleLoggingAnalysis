@@ -48,6 +48,59 @@ scalar_samples <- function(value, samples = list()) {
   samples
 }
 
+scalar_presence <- function(value, fields = list()) {
+  if (!is.list(value)) return(fields)
+  for (name in names(value)) {
+    child <- value[[name]]
+    if (is.list(child)) {
+      fields <- scalar_presence(child, fields)
+    } else if (length(child) && nzchar(name)) {
+      text <- trimws(as.character(child[[1]]))
+      if (!is.na(text) && nzchar(text) && !identical(text, "NA")) fields[[name]] <- TRUE
+    }
+  }
+  fields
+}
+
+sleep_metric_records <- function(materialized) {
+  records <- list()
+  add_record <- function(day, fields) {
+    if (is.na(day) || !length(fields)) return()
+    key <- as.character(day)
+    if (is.null(records[[key]])) records[[key]] <<- list()
+    records[[key]] <<- c(records[[key]], fields)
+  }
+
+  for (path in source_files(materialized, "_sleepData\\.json$")) {
+    payload <- tryCatch(read_json(path), error = function(e) NULL)
+    if (!is.list(payload)) next
+    entries <- if (!is.null(payload$calendarDate) || !is.null(payload$date)) list(payload) else payload
+    for (entry in entries) {
+      if (!is.list(entry)) next
+      day <- parse_date(entry$calendarDate %||% entry$date)
+      add_record(day, scalar_presence(entry))
+    }
+  }
+
+  for (path in source_files(materialized, "\\.csv$")) {
+    if (!grepl("sleep|schlaf", basename(path), ignore.case = TRUE)) next
+    data <- read_csv_flexible(path)
+    if (is.null(data) || !nrow(data)) next
+    date_candidates <- names(data)[norm(names(data)) %in% c("date", "datum", "sleep date", "calendar date")]
+    if (!length(date_candidates)) next
+    date_column <- date_candidates[[1]]
+    for (i in seq_len(nrow(data))) {
+      fields <- list()
+      for (name in names(data)) {
+        value <- data[[name]][[i]]
+        if (!is.na(value) && nzchar(trimws(as.character(value)))) fields[[name]] <- TRUE
+      }
+      add_record(parse_date(data[[date_column]][[i]]), fields)
+    }
+  }
+  records
+}
+
 read_sleep_inventory <- function(materialized) {
   names_found <- character()
   samples <- list()
@@ -78,10 +131,12 @@ read_sleep_inventory <- function(materialized) {
   list(names = names_found, samples = samples, json_files = length(json_files), csv_files = length(csv_files))
 }
 
-read_lifestyle_inventory <- function(materialized, sleep, specs, start, end, excluded) {
+read_lifestyle_inventory <- function(materialized, sleep_records, configured_metrics, start, end, excluded) {
   files <- if (!is.null(materialized$direct_json)) materialized$direct_json else source_files(materialized, "LifestyleLogging\\.json$")
   rows <- list()
-  metric_counts <- setNames(lapply(names(specs), function(x) c(n_done = 0L, n_not_done = 0L)), names(specs))
+  discovered_metrics <- unique(c(configured_metrics, unlist(lapply(sleep_records, names), use.names = FALSE)))
+  discovered_metrics <- sort(discovered_metrics[!is.na(discovered_metrics) & nzchar(discovered_metrics)])
+  metric_counts <- setNames(lapply(discovered_metrics, function(x) c(n_done = 0L, n_not_done = 0L)), discovered_metrics)
   for (path in files) {
     payload <- tryCatch(read_json(path), error = function(e) NULL)
     parsed <- lifestyle_rows(payload)
@@ -95,10 +150,9 @@ read_lifestyle_inventory <- function(materialized, sleep, specs, start, end, exc
         if (isTRUE(status)) rows[[activity]][["yes"]] <- rows[[activity]][["yes"]] + 1L
         else if (identical(status, FALSE)) rows[[activity]][["explicit_no"]] <- rows[[activity]][["explicit_no"]] + 1L
 
-        sleep_values <- sleep[[sleep_key_for_lifestyle_day(day)]]
+        sleep_values <- sleep_records[[sleep_key_for_lifestyle_day(day)]]
         if (is.null(sleep_values)) next
-        for (metric in names(specs)) {
-          if (is.null(sleep_values[[metric]]) || is.na(sleep_values[[metric]])) next
+        for (metric in names(sleep_values)) {
           if (isTRUE(status)) metric_counts[[metric]][["n_done"]] <- metric_counts[[metric]][["n_done"]] + 1L
           else if (identical(status, FALSE)) metric_counts[[metric]][["n_not_done"]] <- metric_counts[[metric]][["n_not_done"]] + 1L
         }
@@ -134,9 +188,9 @@ on.exit({
 
 sleep_inventory <- read_sleep_inventory(sleep_source)
 specs <- metric_specs(config)
-sleep <- sleep_rows(sleep_source, specs)
+sleep_records <- sleep_metric_records(sleep_source)
 excluded <- norm(unlist(config$excluded_activities %||% list()))
-inventory <- read_lifestyle_inventory(lifestyle_source, sleep, specs, start, end, excluded)
+inventory <- read_lifestyle_inventory(lifestyle_source, sleep_records, names(specs), start, end, excluded)
 activity_counts <- inventory$activity_counts
 metric_counts <- inventory$metric_counts
 
