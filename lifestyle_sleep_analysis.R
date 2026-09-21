@@ -244,6 +244,8 @@ group_stats <- function(values, interval) {
   list(n = length(values), mean = mean(values), median = median(values), sd = if (length(values) > 1) stats::sd(values) else NULL, interval_low = as.numeric(stats::quantile(values, low, names = FALSE)), interval_high = as.numeric(stats::quantile(values, 1 - low, names = FALSE)))
 }
 
+group_count <- function(values) list(n = length(values))
+
 analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   progress("[Lifestyle] Starting analysis...")
   start <- parse_date(config$start_date); end <- parse_date(config$end_date)
@@ -296,16 +298,20 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
       }
     }
     not_done_values <- c(native_not_done_values, assumed_not_done_values)
-    done <- group_stats(done_values, interval)
-    native_not_done <- group_stats(native_not_done_values, interval)
-    assumed_not_done <- group_stats(assumed_not_done_values, interval)
-    not_done <- group_stats(not_done_values, interval)
+    # Report descriptive statistics once for the complete sample. Keep only
+    # the group counts separate so the comparison groups remain transparent.
+    total <- group_stats(c(done_values, not_done_values), interval)
+    done <- group_count(done_values)
+    native_not_done <- group_count(native_not_done_values)
+    assumed_not_done <- group_count(assumed_not_done_values)
+    not_done <- group_count(not_done_values)
     row <- c(
       list(activity = activity, metric = metric, missing_activity_is_no = missing_no),
       setNames(done, paste0("done_", names(done))),
       setNames(native_not_done, paste0("native_not_done_", names(native_not_done))),
       setNames(assumed_not_done, paste0("assumed_not_done_", names(assumed_not_done))),
-      setNames(not_done, paste0("not_done_", names(not_done)))
+      setNames(not_done, paste0("not_done_", names(not_done))),
+      setNames(total, paste0("total_", names(total)))
     )
     delta <- p_value <- ci_low <- ci_high <- NULL
     if (length(done_values) >= 2 && length(not_done_values) >= 2) { delta <- mean(done_values) - mean(not_done_values); test <- stats::t.test(done_values, not_done_values, var.equal = FALSE); p_value <- unname(test$p.value); ci_low <- unname(test$conf.int[1]); ci_high <- unname(test$conf.int[2]) }
@@ -329,7 +335,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   progress("[Lifestyle] Statistical analysis finished: ", total_count, " activity/metric combinations")
   progress(sprintf("[Lifestyle] Significance: %d significant (%.1f%%), %d not significant (%.1f%%)", significant_count, significance_summary$significant_percent, not_significant_count, significance_summary$not_significant_percent))
   interpretation_summary <- if (length(results)) table(vapply(results, function(x) as.character(x$interpretation %||% "not_significant"), character(1))) else integer()
-  list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_level = confidence, significance_level = alpha, method = "Welch two-sample t-test", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
+  list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_level = confidence, significance_level = alpha, method = "Welch two-sample t-test", descriptive_statistics = "mean, median, sd, interval_low, and interval_high are calculated once for total (done + not_done); group-specific outputs contain counts only", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
 }
 
 next_run_output_dir <- function(base_dir) {
@@ -484,10 +490,12 @@ get_arg <- function(name) { i <- match(name, args); if (is.na(i) || i == length(
 
 # With no command-line arguments, source() and plain Rscript both use automatic
 # config discovery. Explicit arguments keep the CLI behaviour unchanged.
-progress("[Lifestyle] Script loaded; preparing to run...")
-if (!length(args)) {
-  run_lifestyle_analysis()
-} else {
-  config_arg <- get_arg("--config") %||% get_arg("-c")
-  run_lifestyle_analysis(config_arg, get_arg("--input"), get_arg("--sleep-input"))
+if (identical(environment(), globalenv())) {
+  progress("[Lifestyle] Script loaded; preparing to run...")
+  if (!length(args)) {
+    run_lifestyle_analysis()
+  } else {
+    config_arg <- get_arg("--config") %||% get_arg("-c")
+    run_lifestyle_analysis(config_arg, get_arg("--input"), get_arg("--sleep-input"))
+  }
 }

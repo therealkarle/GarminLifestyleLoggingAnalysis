@@ -31,6 +31,18 @@ for example `Out/2026-09-21_Analysis_1/`. It writes the combined and
 per-metric ranked CSV files and `lifestyle_sleep_analysis.json` there. Each
 run is kept in its own directory so earlier results are not overwritten.
 
+To inventory all scalar sleep fields found in the export and count explicit
+activity choices, run:
+
+```sh
+Rscript inspect_available_metrics.R --config GarminLifestyleAnalysisConfig.yaml
+```
+
+This writes `available_metrics_and_activities.txt` next to the config. The
+activity counts include only explicitly selected `yes` and explicitly
+selected `no` values; missing activity entries are ignored, regardless of
+`missing_activity_is_no`.
+
 ## Configuration
 
 The example configuration documents the supported input formats and analysis
@@ -47,6 +59,11 @@ Optional metrics such as `Stress`, `Restless_Moments`, and `Awake_Time` use
 lower by default when they are added to `sleep_metrics`. Custom metrics not
 listed in the defaults use higher. Each result contains `better_is` and
 `interpretation` (`better`, `worse`, or `not_significant`).
+
+Descriptive statistics are reported once per activity/metric for the complete
+sample (`total_mean`, `total_median`, `total_sd`, `total_interval_low`, and
+`total_interval_high`). The group-specific fields contain counts only:
+`done_n`, `native_not_done_n`, `assumed_not_done_n`, and `not_done_n`.
 
 Garmin assigns a sleep night to its wake-up date, while LifestyleLogging uses
 the bedtime/start date. The analysis therefore matches a lifestyle entry with
