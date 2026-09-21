@@ -26,11 +26,17 @@ __pycache__/
 coverage.xml
 htmlcov/
 
+
 # R session and generated files
 .Rhistory
 .RData
 .Ruserdata
 *.Rout
+*.Rproj
+*.Rproj.user/
+*.Rproj.user/*
+*.Rproj*
+
 
 # Local tooling and operating-system files
 .vscode/
@@ -39,3 +45,4 @@ htmlcov/
 *.swo
 Thumbs.db
 Desktop.ini
+.Rproj.user
