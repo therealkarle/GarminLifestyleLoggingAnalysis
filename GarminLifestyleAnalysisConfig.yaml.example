@@ -26,6 +26,9 @@ excluded_activities:
   - Example activity to exclude
 
 # Sleep metrics to analyze, mapped to accepted Garmin CSV/JSON field names.
+# For a field whose JSON name is already the desired metric name, use an empty
+# mapping such as `averageHR:`. A scalar value such as `averageHR: averageHR`
+# is also accepted. This allows direct JSON fields and aliases to be mixed.
 sleep_metrics:
   Sleep_Score:
     - Score
@@ -39,6 +42,11 @@ sleep_metrics:
   RHR:
     - Ruheherzfrequenz
     - Resting Heart Rate
+  averageHR:
+  restlessMomentCount:
+  awakeSleepSeconds:
+  awakeCount:
+  averageSPO2:
 
 # Interpretation of significant differences. The standard metrics remain
 # unchanged. Optional metrics can be added to sleep_metrics and configured

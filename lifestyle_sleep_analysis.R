@@ -228,7 +228,15 @@ sleep_rows_json <- function(materialized, specs) {
 
 metric_specs <- function(config) {
   configured <- config$sleep_metrics %||% names(DEFAULT_METRICS)
-  if (is.list(configured) && !is.null(names(configured))) return(lapply(configured, function(x) as.character(unlist(x))))
+  if (is.list(configured) && !is.null(names(configured))) {
+    return(setNames(lapply(seq_along(configured), function(index) {
+      metric <- names(configured)[index]
+      aliases <- as.character(unlist(configured[[index]]))
+      # A null/empty mapping means that the config key is the source field
+      # name itself, e.g. `averageHR:`.
+      if (!length(aliases) || !any(nzchar(aliases))) metric else aliases
+    }), names(configured)))
+  }
   names <- as.character(unlist(configured)); setNames(lapply(names, function(name) DEFAULT_METRICS[[name]] %||% name), names)
 }
 

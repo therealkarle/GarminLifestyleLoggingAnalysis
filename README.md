@@ -68,6 +68,11 @@ lower by default when they are added to `sleep_metrics`. Custom metrics not
 listed in the defaults use higher. Each result contains `better_is` and
 `interpretation` (`better`, `worse`, or `not_significant`).
 
+`sleep_metrics` supports both alias lists and direct JSON field names in the
+same mapping. Use an empty mapping for a field that should keep its JSON name,
+for example `averageHR:` or `averageSPO2:`. A scalar alias such as
+`averageHR: averageHR` is accepted as well.
+
 Descriptive statistics are reported once per activity/metric for the complete
 sample (`total_mean`, `total_median`, `total_sd`, `total_interval_low`, and
 `total_interval_high`). The group-specific fields contain counts only:

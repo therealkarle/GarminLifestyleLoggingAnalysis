@@ -218,6 +218,7 @@ configured_metrics <- config$sleep_metrics %||% list()
 configured_metric_lines <- if (is.list(configured_metrics) && length(configured_metrics)) {
   vapply(names(configured_metrics), function(metric) {
     aliases <- as.character(unlist(configured_metrics[[metric]]))
+    if (!length(aliases) || !any(nzchar(aliases))) aliases <- metric
     paste0("- ", metric, ": ", paste(aliases, collapse = ", "))
   }, character(1))
 } else {
