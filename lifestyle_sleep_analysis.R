@@ -340,6 +340,8 @@ sleep_rows <- function(materialized, specs) {
 }
 
 group_stats <- function(values, interval) {
+  values <- as.numeric(values)
+  values <- values[is.finite(values)]
   if (!length(values)) return(list(n = 0, mean = NULL, median = NULL, sd = NULL, interval_low = NULL, interval_high = NULL))
   low <- (1 - interval) / 2
   list(n = length(values), mean = mean(values), median = median(values), sd = if (length(values) > 1) stats::sd(values) else NULL, interval_low = as.numeric(stats::quantile(values, low, names = FALSE)), interval_high = as.numeric(stats::quantile(values, 1 - low, names = FALSE)))
@@ -409,7 +411,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
     override_name <- names(overrides)[norm(names(overrides)) == norm(activity)][1]
     missing_no <- if (length(override_name) && !is.na(override_name)) isTRUE(overrides[[override_name]]) else missing_default
     values <- sleep_values[[metric]]
-    usable <- !is.na(values)
+    usable <- is.finite(values)
     done_values <- values[usable & status_values]
     native_not_done_values <- values[usable & !status_values & !is.na(status_values)]
     assumed_not_done_values <- if (missing_no) values[usable & is.na(status_values)] else numeric()
@@ -430,8 +432,23 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
       setNames(total, paste0("not_", names(total)))
     )
     delta <- p_value <- ci_low <- ci_high <- NULL
-    if (length(done_values) >= 2 && length(not_done_values) >= 2) { delta <- mean(done_values) - mean(not_done_values); test <- stats::t.test(done_values, not_done_values, var.equal = FALSE, conf.level = confidence); p_value <- unname(test$p.value); ci_low <- unname(test$conf.int[1]); ci_high <- unname(test$conf.int[2]) }
-    significant <- !is.null(p_value) && p_value < alpha && !is.null(delta) && delta != 0
+    if (length(done_values) >= 2 && length(not_done_values) >= 2) {
+      delta <- mean(done_values) - mean(not_done_values)
+      test <- tryCatch(
+        stats::t.test(done_values, not_done_values, var.equal = FALSE, conf.level = confidence),
+        error = function(e) NULL
+      )
+      if (!is.null(test)) {
+        p_value <- unname(test$p.value)
+        ci_low <- unname(test$conf.int[1])
+        ci_high <- unname(test$conf.int[2])
+      }
+    }
+    significant <- isTRUE(
+      !is.null(delta) && length(delta) == 1L && is.finite(delta) &&
+        !is.null(p_value) && length(p_value) == 1L && is.finite(p_value) &&
+        p_value < alpha && delta != 0
+    )
     classification <- if (significant && delta > 0) "significant_positive" else if (significant && delta < 0) "significant_negative" else "not_significant"
     interpretation <- if (!significant || is.null(delta) || delta == 0) "not_significant" else if ((direction == "higher" && delta > 0) || (direction == "lower" && delta < 0)) "better" else "worse"
      results[[index]] <- c(row, list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, significant = significant, classification = classification, better_is = direction, interpretation = interpretation)); index <- index + 1
