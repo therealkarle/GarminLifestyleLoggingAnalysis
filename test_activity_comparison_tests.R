@@ -128,7 +128,25 @@ empty_significant_config <- list(analysis_output = list(
 ))
 empty_significant_dir <- analysis$write_outputs(empty_significant_result, tempfile("empty-significant-comparison-output-"), empty_significant_config)
 empty_significant_file <- file.path(empty_significant_dir, "activity_comparison_tests_significant.csv")
-expect(file.exists(empty_significant_file), "An enabled significant comparison export must exist even with no significant results.")
-expect(nrow(utils::read.csv(empty_significant_file, stringsAsFactors = FALSE)) == 0L, "The empty significant comparison export must contain only its CSV header.")
+expect(!file.exists(empty_significant_file), "No CSV must be emitted when an enabled significant comparison export has no rows.")
+
+empty_metric_result <- list(
+  results = list(list(activity = "Walk", metric = "Sleep_Score", delta = 0, p_value = 0.50, classification = "not_significant")),
+  comparison_results = list()
+)
+empty_metric_config <- list(analysis_output = list(
+  all_combined = FALSE,
+  all_significant = TRUE,
+  all_unsignificant = FALSE,
+  per_metric_combined = FALSE,
+  per_metric_significant = TRUE,
+  per_metric_unsignificant = FALSE,
+  json = FALSE
+))
+empty_metric_dir <- analysis$write_outputs(empty_metric_result, tempfile("empty-metric-classification-output-"), empty_metric_config)
+expect(!file.exists(file.path(empty_metric_dir, "all_significant_positive.csv")), "No empty all-metric positive significance CSV must be emitted.")
+expect(!file.exists(file.path(empty_metric_dir, "all_significant_negative.csv")), "No empty all-metric negative significance CSV must be emitted.")
+expect(!file.exists(file.path(empty_metric_dir, "Sleep_Score_significant_positive.csv")), "No empty per-metric positive significance CSV must be emitted.")
+expect(!file.exists(file.path(empty_metric_dir, "Sleep_Score_significant_negative.csv")), "No empty per-metric negative significance CSV must be emitted.")
 
 cat("activity comparison tests passed\n")

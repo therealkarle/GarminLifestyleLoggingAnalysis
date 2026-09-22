@@ -928,7 +928,9 @@ write_outputs <- function(result, output_dir, config) {
     frame[, csv_columns, drop = FALSE]
   }
   write_frame <- function(frame, path, classification = "all") {
+    if (!nrow(frame)) return(invisible(FALSE))
     utils::write.csv(sort_frame(frame, classification), path, row.names = FALSE, na = "")
+    invisible(TRUE)
   }
 
   # Convert result lists to a data frame once. All subsequent exports filter
@@ -979,9 +981,9 @@ write_outputs <- function(result, output_dir, config) {
         }, logical(1))
         selected <- selected[enabled, , drop = FALSE]
       }
-      # Match the main classification exports: an enabled global switch writes
-      # a header-only CSV when no comparison has that classification.
-      if (!nrow(selected) && !classification_default) next
+      # Do not emit header-only files: an enabled export only creates a CSV
+      # when at least one configured comparison belongs to this classification.
+      if (!nrow(selected)) next
       utils::write.csv(
         selected[, comparison_columns, drop = FALSE],
         file.path(output_dir, paste0("activity_comparison_tests_", export_name, ".csv")),

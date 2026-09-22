@@ -115,6 +115,8 @@ for all classification CSVs. `all_significant` controls both significant files
 `all_unsignificant` controls `all_not_significant.csv`. When explicitly set,
 these two switches override `all_classifications`; set
 `all_unsignificant: false` to write only the significant all-metric CSVs.
+An enabled CSV export is created only when it contains at least one result;
+the analysis never writes header-only CSV files.
 
 `per_metric_combined` writes one `<metric>_all.csv` file per metric.
 `per_metric_classifications` is the fallback for that metric's classification
