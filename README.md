@@ -21,7 +21,7 @@ the repository directory. The personal config is ignored by Git.
 ## Download Garmin data
 
 1. Sign in to your Garmin account and open the [Garmin Account Data Management page](https://www.garmin.com/account/datamanagement/).
-2. Request an export of your account data and wait for Garmin's confirmation email. The export can take some time to become available.
+2. Request an export of your account data and wait for Garmin's confirmation email. The export can take some time (usualy 48h acordign to Garmin) to become available.
 3. Download the provided ZIP archive and extract it locally. Keep the extracted export outside version control.
 4. Point `input_path` in `GarminLifestyleAnalysisConfig.yaml` to the extracted export directory, the ZIP file, or the direct `LifestyleLogging.json` file.
 
@@ -115,7 +115,8 @@ the three classification CSVs per metric. Set `json: false` to disable the
 ### Direct activity comparison tests
 
 `activity_comparison_tests` optionally defines direct, independent comparisons
-between two groups of lifestyle entries. They are written to the separate
+between two groups of lifestyle entries. Each group's `label` is optional; when
+omitted, its expression identifies the group in the results. The tests are written to the separate
 `activity_comparison_tests.csv`; the existing activity-versus-not-done CSVs and
 JSON file are unchanged. Every configured test is evaluated for every selected
 sleep metric and uses the same Welch two-sample test, confidence interval,
@@ -141,8 +142,8 @@ with a configuration error. Missing logs follow `missing_activity_is_no` and
 day whose rule cannot be evaluated is excluded. A night that matches both
 groups is excluded from both groups and counted in `overlap_excluded_n`.
 
-The comparison CSV includes labels and source expressions for both groups,
-their descriptive statistics, `unknown_excluded_n`, `overlap_excluded_n`, the
+The comparison CSV includes any supplied labels, source expressions for both
+groups, their descriptive statistics, `unknown_excluded_n`, `overlap_excluded_n`, the
 mean difference `mean(group_a) - mean(group_b)`, its confidence interval,
 p-value, and direction-aware `better`, `worse`, or `not_significant`
 interpretation. Like the other results, these are observational associations,

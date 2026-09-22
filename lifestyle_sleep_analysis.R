@@ -159,7 +159,7 @@ comparison_tests <- function(config, known_activities) {
       if (!is.list(group)) stop("Activity comparison test '", name, "' requires ", key, ".")
       label <- trimws(as.character(group$label %||% "")[1])
       expression <- trimws(as.character(group$expression %||% "")[1])
-      if (!nzchar(label) || !nzchar(expression)) stop("Activity comparison test '", name, "' requires a label and expression for ", key, ".")
+      if (!nzchar(expression)) stop("Activity comparison test '", name, "' requires an expression for ", key, ".")
       list(label = label, expression = expression, tree = parse_activity_expression(expression, known_activities))
     }
     list(name = name, group_a = make_group(test$group_a, "group_a"), group_b = make_group(test$group_b, "group_b"))

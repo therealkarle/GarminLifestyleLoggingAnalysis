@@ -23,8 +23,8 @@ config <- list(
   missing_activity_is_no = FALSE,
   activity_comparison_tests = list(list(
     name = "1h versus only 30m",
-    group_a = list(label = "1h", expression = "`Display 1h` AND `Display 30m`"),
-    group_b = list(label = "only 30m", expression = "`Display 30m` AND NOT `Display 1h`")
+    group_a = list(expression = "`Display 1h` AND `Display 30m`"),
+    group_b = list(expression = "`Display 30m` AND NOT `Display 1h`")
   )))
 tests <- analysis$comparison_tests(config, known)
 days <- sprintf("2026-01-%02d", 1:5)
