@@ -16,8 +16,19 @@ performance:
 analysis_output:
   all_combined: true
   all_classifications: true
+  # These override all_classifications when explicitly set. Set
+  # all_unsignificant: false to keep only significant all-metric CSVs.
+  all_significant: true
+  all_unsignificant: true
   per_metric_combined: true
   per_metric_classifications: true
+  # These override per_metric_classifications when explicitly set.
+  per_metric_significant: true
+  per_metric_unsignificant: true
+  # Optional per-metric overrides take priority over the per_metric switches.
+  # per_metric_overrides:
+  #   Sleep_Score:
+  #     unsignificant: false
   json: true
 # Inventory output is written below output_dir/available_metrics_and_activities.
 # Each format can be enabled or disabled independently.

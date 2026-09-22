@@ -61,4 +61,31 @@ expect(file.exists(file.path(output_dir, "activity_comparison_tests.csv")), "Con
 json_text <- paste(readLines(file.path(output_dir, "lifestyle_sleep_analysis.json"), warn = FALSE), collapse = "\n")
 expect(!grepl("comparison_results", json_text, fixed = TRUE), "Existing JSON structure must not include comparison results.")
 
+classification_output_result <- list(
+  results = list(
+    list(activity = "A", metric = "Sleep_Score", delta = 1, p_value = 0.04, classification = "significant_positive"),
+    list(activity = "B", metric = "Sleep_Score", delta = 0, p_value = 0.50, classification = "not_significant"),
+    list(activity = "C", metric = "HRV", delta = 0, p_value = 0.50, classification = "not_significant")
+  ),
+  comparison_results = list(), metadata = list()
+)
+classification_output_config <- list(analysis_output = list(
+  all_combined = FALSE,
+  all_classifications = FALSE,
+  all_significant = TRUE,
+  all_unsignificant = FALSE,
+  per_metric_combined = FALSE,
+  per_metric_classifications = FALSE,
+  per_metric_significant = TRUE,
+  per_metric_unsignificant = FALSE,
+  per_metric_overrides = list(HRV = list(unsignificant = TRUE)),
+  json = FALSE
+))
+classification_output_dir <- analysis$write_outputs(classification_output_result, tempfile("classification-output-"), classification_output_config)
+expect(file.exists(file.path(classification_output_dir, "all_significant_positive.csv")), "all_significant must override all_classifications.")
+expect(!file.exists(file.path(classification_output_dir, "all_not_significant.csv")), "all_unsignificant: false must suppress the all-metric non-significant CSV.")
+expect(file.exists(file.path(classification_output_dir, "Sleep_Score_significant_positive.csv")), "per_metric_significant must override per_metric_classifications.")
+expect(!file.exists(file.path(classification_output_dir, "Sleep_Score_not_significant.csv")), "per_metric_unsignificant: false must suppress the default per-metric CSV.")
+expect(file.exists(file.path(classification_output_dir, "HRV_not_significant.csv")), "A per-metric override must take priority over the per-metric default.")
+
 cat("activity comparison tests passed\n")

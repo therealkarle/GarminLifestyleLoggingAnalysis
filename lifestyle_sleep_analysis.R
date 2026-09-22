@@ -881,10 +881,22 @@ write_outputs <- function(result, output_dir, config) {
     }
     isTRUE(value)
   }
+  output_switch <- function(name, fallback = NULL, overrides = analysis_output) {
+    value <- overrides[[name]]
+    if (is.null(value)) return(fallback)
+    if (!is.logical(value) || length(value) != 1L || is.na(value)) {
+      stop(sprintf("analysis_output.%s must be a single true/false value.", name))
+    }
+    isTRUE(value)
+  }
   write_all_combined <- output_enabled("all_combined")
   write_all_classifications <- output_enabled("all_classifications")
+  write_all_significant <- output_switch("all_significant", write_all_classifications)
+  write_all_unsignificant <- output_switch("all_unsignificant", write_all_classifications)
   write_per_metric_combined <- output_enabled("per_metric_combined")
   write_per_metric_classifications <- output_enabled("per_metric_classifications")
+  write_per_metric_significant <- output_switch("per_metric_significant", write_per_metric_classifications)
+  write_per_metric_unsignificant <- output_switch("per_metric_unsignificant", write_per_metric_classifications)
   write_json_result <- output_enabled("json")
   classifications <- c("significant_positive", "significant_negative", "not_significant")
   result_columns <- if (length(result$results)) {
@@ -953,8 +965,10 @@ write_outputs <- function(result, output_dir, config) {
     write_frame(all_frame, file.path(output_dir, "all.csv"))
   }
 
-  if (write_all_classifications) {
+  if (write_all_significant || write_all_unsignificant) {
     for (classification in classifications) {
+      write_classification <- if (classification == "not_significant") write_all_unsignificant else write_all_significant
+      if (!write_classification) next
       selected <- if ("classification" %in% names(all_frame)) all_frame[all_frame$classification == classification, , drop = FALSE] else all_frame[FALSE, , drop = FALSE]
       write_frame(selected, file.path(output_dir, paste0(all_metric_file_stems[[classification]], ".csv")), classification)
     }
@@ -974,13 +988,24 @@ write_outputs <- function(result, output_dir, config) {
     metric <- metrics[[metric_index]]
     metric_results <- if ("metric" %in% names(all_frame)) all_frame[as.character(all_frame$metric) == metric, , drop = FALSE] else all_frame[FALSE, , drop = FALSE]
     metric_stem <- metric_stems[[metric_index]]
+    metric_overrides <- analysis_output$per_metric_overrides[[metric]] %||% list()
+    if (!is.list(metric_overrides)) {
+      stop(sprintf("analysis_output.per_metric_overrides.%s must be a mapping.", metric))
+    }
+    metric_classifications <- output_switch("classifications", NULL, metric_overrides)
+    metric_significant_default <- if (is.null(metric_classifications)) write_per_metric_significant else metric_classifications
+    metric_unsignificant_default <- if (is.null(metric_classifications)) write_per_metric_unsignificant else metric_classifications
+    metric_significant <- output_switch("significant", metric_significant_default, metric_overrides)
+    metric_unsignificant <- output_switch("unsignificant", metric_unsignificant_default, metric_overrides)
 
     if (write_per_metric_combined) {
       write_frame(metric_results, file.path(output_dir, paste0(metric_stem, "_all.csv")))
     }
 
-    if (write_per_metric_classifications) {
+    if (metric_significant || metric_unsignificant) {
       for (classification in classifications) {
+        write_classification <- if (classification == "not_significant") metric_unsignificant else metric_significant
+        if (!write_classification) next
         selected <- if ("classification" %in% names(metric_results)) metric_results[metric_results$classification == classification, , drop = FALSE] else metric_results[FALSE, , drop = FALSE]
         write_frame(selected, file.path(output_dir, paste0(metric_stem, "_", classification, ".csv")), classification)
       }

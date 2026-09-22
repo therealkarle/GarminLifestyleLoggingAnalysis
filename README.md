@@ -83,8 +83,12 @@ older configurations:
 analysis_output:
   all_combined: true
   all_classifications: true
+  all_significant: true
+  all_unsignificant: true
   per_metric_combined: true
   per_metric_classifications: true
+  per_metric_significant: true
+  per_metric_unsignificant: true
   json: true
 ```
 
@@ -105,12 +109,32 @@ benchmarking, but execution remains deterministic and serial until a real
 export demonstrates a reliable benefit from parallel workers. Parallel file
 writing is never used.
 
-`all_combined` writes `all.csv`; `all_classifications` writes the three
-classification CSVs for all metrics. `per_metric_combined` writes one
-`<metric>_all.csv` file per metric, while `per_metric_classifications` writes
-the three classification CSVs per metric. Set `json: false` to disable the
-`lifestyle_sleep_analysis.json` result file. Missing switches default to
-`true`, and each switch must be a single YAML boolean value.
+`all_combined` writes `all.csv`; `all_classifications` is the fallback switch
+for all classification CSVs. `all_significant` controls both significant files
+(`all_significant_positive.csv` and `all_significant_negative.csv`), while
+`all_unsignificant` controls `all_not_significant.csv`. When explicitly set,
+these two switches override `all_classifications`; set
+`all_unsignificant: false` to write only the significant all-metric CSVs.
+
+`per_metric_combined` writes one `<metric>_all.csv` file per metric.
+`per_metric_classifications` is the fallback for that metric's classification
+CSVs; `per_metric_significant` and `per_metric_unsignificant` override it in
+the same way. For a specific metric, add an optional mapping under
+`analysis_output.per_metric_overrides`; its `classifications`, `significant`,
+and `unsignificant` booleans take priority over the per-metric defaults:
+
+```yaml
+analysis_output:
+  per_metric_unsignificant: false
+  per_metric_overrides:
+    Sleep_Score:
+      # This metric is the exception: also write its not-significant CSV.
+      unsignificant: true
+```
+
+Missing switches default to `true` for backward compatibility, and each
+switch must be a single YAML boolean value. Set `json: false` to disable the
+`lifestyle_sleep_analysis.json` result file.
 
 ### Direct activity comparison tests
 
