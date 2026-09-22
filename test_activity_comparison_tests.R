@@ -48,7 +48,7 @@ config$activity_comparison_tests[[1]]$group_a$expression <- "`Display 1h`"
 config$activity_comparison_tests[[1]]$group_b$expression <- "`Display 30m`"
 overlap_test <- analysis$comparison_tests(config, known)
 overlap_result <- analysis$activity_comparison_results(overlap_test, lifestyle, days, list(Sleep_Score = c(90, 88, 80, 78, 76)), "Sleep_Score", c(Sleep_Score = "higher"), config, 0.80, 0.95, 0.05)[[1]]
-expect(identical(overlap_result$overlap_excluded_n, 2L), "Overlapping nights must be excluded from both groups.")
+expect(identical(overlap_result$group_a_n, 2L) && identical(overlap_result$group_b_n, 5L), "Overlapping activity rules must retain the night in both groups.")
 
 output_result <- list(
   results = list(list(activity = "Existing activity", metric = "Sleep_Score", delta = 1, p_value = 0.04, delta_ci_low = 0.1, delta_ci_high = 1.9, classification = "significant_positive", interpretation = "better")),

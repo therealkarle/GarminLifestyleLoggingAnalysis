@@ -679,9 +679,8 @@ activity_comparison_results <- function(tests, lifestyle, lifestyle_keys, sleep_
     for (metric in metrics) {
       values <- sleep_values[[metric]]; usable <- is.finite(values)
       unknown <- is.na(group_a_matches) | is.na(group_b_matches)
-      overlap <- !unknown & group_a_matches & group_b_matches
-      group_a_values <- values[usable & !unknown & !overlap & group_a_matches]
-      group_b_values <- values[usable & !unknown & !overlap & group_b_matches]
+      group_a_values <- values[usable & !unknown & group_a_matches]
+      group_b_values <- values[usable & !unknown & group_b_matches]
       group_a <- group_stats(group_a_values, interval); group_b <- group_stats(group_b_values, interval)
       delta <- p_value <- ci_low <- ci_high <- NULL
       if (length(group_a_values) >= 2L && length(group_b_values) >= 2L) {
@@ -701,7 +700,7 @@ activity_comparison_results <- function(tests, lifestyle, lifestyle_keys, sleep_
       interpretation <- if (!significant || is.null(delta) || delta == 0) "not_significant" else if ((direction == "higher" && delta > 0) || (direction == "lower" && delta < 0)) "better" else "worse"
       classification <- if (significant && interpretation == "better") "significant_positive" else if (significant && interpretation == "worse") "significant_negative" else "not_significant"
       results[[index]] <- c(
-        list(test_name = test$name, group_a_label = test$group_a$label, group_a_expression = test$group_a$expression, group_b_label = test$group_b$label, group_b_expression = test$group_b$expression, metric = metric, unknown_excluded_n = sum(usable & unknown), overlap_excluded_n = sum(usable & overlap)),
+        list(test_name = test$name, group_a_label = test$group_a$label, group_a_expression = test$group_a$expression, group_b_label = test$group_b$label, group_b_expression = test$group_b$expression, metric = metric, unknown_excluded_n = sum(usable & unknown)),
         setNames(group_a, paste0("group_a_", names(group_a))),
         setNames(group_b, paste0("group_b_", names(group_b))),
         list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, classification = classification, better_is = direction)
@@ -927,7 +926,7 @@ write_outputs <- function(result, output_dir, config) {
       "test_name", "metric", "delta", "p_value", "delta_ci_low", "delta_ci_high",
       "group_a_n", "group_a_mean", "group_a_median", "group_a_sd", "group_a_interval_low", "group_a_interval_high",
       "group_b_n", "group_b_mean", "group_b_median", "group_b_sd", "group_b_interval_low", "group_b_interval_high",
-      "unknown_excluded_n", "overlap_excluded_n",
+      "unknown_excluded_n",
       "group_a_label", "group_b_label",
       "classification", "better_is",
       "group_a_expression", "group_b_expression"
