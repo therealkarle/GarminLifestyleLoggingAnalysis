@@ -139,9 +139,11 @@ parentheses. Operator precedence is `NOT`, then `AND`, then `OR`. Invalid
 syntax or a name that is not a configured or observed activity stops the run
 with a configuration error. Missing logs follow `missing_activity_is_no` and
 `missing_activity_is_no_by_activity`: when absence is not considered `no`, a
-day whose rule cannot be evaluated is excluded. If a night matches both
+night whose rule cannot be evaluated is omitted from that group only. The
+other group's result is evaluated independently. If a night matches both
 groups, it is included in both; use mutually exclusive expressions if that is
-not desired.
+not desired. `unknown_excluded_n` counts distinct metric-available nights for
+which either group's rule is unknown.
 
 The comparison CSV includes any supplied labels, source expressions for both
 groups, their descriptive statistics, `unknown_excluded_n`, the
