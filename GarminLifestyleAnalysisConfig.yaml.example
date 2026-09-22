@@ -39,6 +39,20 @@ activities: []
 excluded_activities:
   - Example activity to exclude
 
+# Optional direct comparisons between two explicitly defined activity groups.
+# Activity names are enclosed in backticks. Supported operators are NOT, AND,
+# OR, and parentheses (in that precedence order). A day that matches both
+# groups is excluded from both groups so it is never used twice in one test.
+# Missing activity entries follow missing_activity_is_no and its overrides.
+activity_comparison_tests:
+  - name: "Display off: 1h vs only 30min"
+    group_a:
+      label: "1 hour before bed"
+      expression: "`Display off 1h before bed` AND `Display off 30min before bed`"
+    group_b:
+      label: "only 30 minutes before bed"
+      expression: "`Display off 30min before bed` AND NOT `Display off 1h before bed`"
+
 # Sleep metrics to analyze, mapped to accepted Garmin CSV/JSON field names.
 # For a field whose JSON name is already the desired metric name, use an empty
 # mapping such as `averageHR:`. A scalar value such as `averageHR: averageHR`

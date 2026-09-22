@@ -51,6 +51,137 @@ norm <- function(x) {
   gsub(" +", " ", gsub("_", " ", x))
 }
 
+# Parse the deliberately small boolean language used by activity comparison
+# tests. Activity names must be quoted with backticks so expressions never
+# execute arbitrary R code.
+activity_expression_tokens <- function(expression) {
+  expression <- trimws(as.character(expression %||% "")[1])
+  if (!nzchar(expression)) stop("Activity comparison expressions must not be empty.")
+  tokens <- list(); position <- 1L; expression_length <- nchar(expression)
+  add_token <- function(type, value = NULL) tokens[[length(tokens) + 1L]] <<- list(type = type, value = value)
+  while (position <= expression_length) {
+    character_at_position <- substr(expression, position, position)
+    if (grepl("\\s", character_at_position)) {
+      position <- position + 1L
+    } else if (character_at_position == "`") {
+      closing <- regexpr("`", substr(expression, position + 1L, expression_length), fixed = TRUE)[1]
+      if (closing < 0L) stop("Unterminated backtick-quoted activity name in comparison expression: ", expression)
+      name <- substr(expression, position + 1L, position + closing - 1L)
+      if (!nzchar(trimws(name))) stop("Activity names in comparison expressions must not be empty.")
+      add_token("activity", name); position <- position + closing + 1L
+    } else if (character_at_position %in% c("(", ")")) {
+      add_token(character_at_position); position <- position + 1L
+    } else {
+      remaining <- substr(expression, position, expression_length)
+      word <- regmatches(remaining, regexpr("^[A-Za-z]+", remaining, perl = TRUE))
+      if (!length(word) || !nzchar(word) || !toupper(word) %in% c("AND", "OR", "NOT")) {
+        stop("Expected a backtick-quoted activity name, AND, OR, NOT, or parentheses in comparison expression: ", expression)
+      }
+      add_token(tolower(word)); position <- position + nchar(word)
+    }
+  }
+  tokens
+}
+
+parse_activity_expression <- function(expression, known_activities) {
+  tokens <- activity_expression_tokens(expression); position <- 1L
+  known_names <- setNames(as.character(known_activities), norm(known_activities))
+  take <- function(type = NULL) {
+    if (position > length(tokens)) return(NULL)
+    token <- tokens[[position]]
+    if (!is.null(type) && token$type != type) return(NULL)
+    position <<- position + 1L
+    token
+  }
+  parse_primary <- NULL; parse_not <- NULL; parse_and <- NULL; parse_or <- NULL
+  parse_primary <- function() {
+    token <- take("activity")
+    if (!is.null(token)) {
+      normalized_name <- norm(token$value)
+      if (!normalized_name %in% names(known_names)) stop("Unknown activity in comparison expression: ", token$value)
+      return(list(type = "activity", name = unname(known_names[[normalized_name]])))
+    }
+    if (!is.null(take("("))) {
+      node <- parse_or()
+      if (is.null(take(")"))) stop("Missing closing parenthesis in comparison expression: ", expression)
+      return(node)
+    }
+    stop("Expected an activity name or opening parenthesis in comparison expression: ", expression)
+  }
+  parse_not <- function() {
+    if (!is.null(take("not"))) return(list(type = "not", child = parse_not()))
+    parse_primary()
+  }
+  parse_and <- function() {
+    node <- parse_not()
+    while (!is.null(take("and"))) node <- list(type = "and", left = node, right = parse_not())
+    node
+  }
+  parse_or <- function() {
+    node <- parse_and()
+    while (!is.null(take("or"))) node <- list(type = "or", left = node, right = parse_and())
+    node
+  }
+  tree <- parse_or()
+  if (position <= length(tokens)) stop("Unexpected token in comparison expression: ", expression)
+  tree
+}
+
+evaluate_activity_expression <- function(tree, statuses) {
+  if (tree$type == "activity") return(statuses[[norm(tree$name)]])
+  if (tree$type == "not") {
+    value <- evaluate_activity_expression(tree$child, statuses)
+    return(if (is.na(value)) NA else !value)
+  }
+  left <- evaluate_activity_expression(tree$left, statuses); right <- evaluate_activity_expression(tree$right, statuses)
+  if (tree$type == "and") {
+    if (identical(left, FALSE) || identical(right, FALSE)) return(FALSE)
+    if (identical(left, TRUE) && identical(right, TRUE)) return(TRUE)
+    return(NA)
+  }
+  if (tree$type == "or") {
+    if (identical(left, TRUE) || identical(right, TRUE)) return(TRUE)
+    if (identical(left, FALSE) && identical(right, FALSE)) return(FALSE)
+    return(NA)
+  }
+  stop("Unsupported activity comparison expression node.")
+}
+
+comparison_tests <- function(config, known_activities) {
+  configured <- config$activity_comparison_tests %||% list()
+  if (!length(configured)) return(list())
+  if (!is.list(configured)) stop("activity_comparison_tests must be a YAML list.")
+  tests <- lapply(configured, function(test) {
+    if (!is.list(test)) stop("Each activity_comparison_tests entry must be a mapping.")
+    name <- trimws(as.character(test$name %||% "")[1])
+    if (!nzchar(name)) stop("Each activity comparison test requires a name.")
+    make_group <- function(group, key) {
+      if (!is.list(group)) stop("Activity comparison test '", name, "' requires ", key, ".")
+      label <- trimws(as.character(group$label %||% "")[1])
+      expression <- trimws(as.character(group$expression %||% "")[1])
+      if (!nzchar(label) || !nzchar(expression)) stop("Activity comparison test '", name, "' requires a label and expression for ", key, ".")
+      list(label = label, expression = expression, tree = parse_activity_expression(expression, known_activities))
+    }
+    list(name = name, group_a = make_group(test$group_a, "group_a"), group_b = make_group(test$group_b, "group_b"))
+  })
+  names <- vapply(tests, `[[`, character(1), "name")
+  if (anyDuplicated(names)) stop("Activity comparison test names must be unique.")
+  tests
+}
+
+activity_statuses_for_day <- function(day_entries, activities, config) {
+  overrides <- config$missing_activity_is_no_by_activity %||% list()
+  missing_default <- isTRUE(config$missing_activity_is_no %||% TRUE)
+  entry_names <- names(day_entries %||% list())
+  setNames(vapply(activities, function(activity) {
+    found <- match(norm(activity), norm(entry_names), nomatch = 0L)
+    if (found) return(isTRUE(day_entries[[found]]))
+    override_name <- names(overrides)[norm(names(overrides)) == norm(activity)][1]
+    missing_no <- if (length(override_name) && !is.na(override_name)) isTRUE(overrides[[override_name]]) else missing_default
+    if (missing_no) FALSE else NA
+  }, logical(1)), norm(activities))
+}
+
 parse_date <- function(x) {
   if (is.list(x) && length(x) >= 3) return(as.Date(sprintf("%04d-%02d-%02d", as.integer(x[[1]]), as.integer(x[[2]]), as.integer(x[[3]]))))
   if (length(x) == 0 || is.null(x) || is.na(x)[1]) return(as.Date(NA))
@@ -527,6 +658,60 @@ group_stats <- function(values, interval) {
 
 group_count <- function(values) list(n = length(values))
 
+activity_comparison_results <- function(tests, lifestyle, lifestyle_keys, sleep_values, metrics, directions, config, interval, confidence, alpha) {
+  if (!length(tests)) return(list())
+  results <- list(); index <- 1L
+  for (test in tests) {
+    unlist_activity_names <- function(tree) {
+      if (tree$type == "activity") return(tree$name)
+      if (tree$type == "not") return(unlist_activity_names(tree$child))
+      c(unlist_activity_names(tree$left), unlist_activity_names(tree$right))
+    }
+    activity_names <- unique(c(unlist_activity_names(test$group_a$tree), unlist_activity_names(test$group_b$tree)))
+    group_a_matches <- vapply(lifestyle_keys, function(key) {
+      statuses <- activity_statuses_for_day(lifestyle[[key]], activity_names, config)
+      evaluate_activity_expression(test$group_a$tree, statuses)
+    }, logical(1))
+    group_b_matches <- vapply(lifestyle_keys, function(key) {
+      statuses <- activity_statuses_for_day(lifestyle[[key]], activity_names, config)
+      evaluate_activity_expression(test$group_b$tree, statuses)
+    }, logical(1))
+    for (metric in metrics) {
+      values <- sleep_values[[metric]]; usable <- is.finite(values)
+      unknown <- is.na(group_a_matches) | is.na(group_b_matches)
+      overlap <- !unknown & group_a_matches & group_b_matches
+      group_a_values <- values[usable & !unknown & !overlap & group_a_matches]
+      group_b_values <- values[usable & !unknown & !overlap & group_b_matches]
+      group_a <- group_stats(group_a_values, interval); group_b <- group_stats(group_b_values, interval)
+      delta <- p_value <- ci_low <- ci_high <- NULL
+      if (length(group_a_values) >= 2L && length(group_b_values) >= 2L) {
+        delta <- mean(group_a_values) - mean(group_b_values)
+        statistical_test <- tryCatch(
+          stats::t.test(group_a_values, group_b_values, var.equal = FALSE, conf.level = confidence),
+          error = function(e) NULL
+        )
+        if (!is.null(statistical_test)) {
+          delta <- unname(statistical_test$estimate[[1]] - statistical_test$estimate[[2]])
+          p_value <- unname(statistical_test$p.value)
+          ci_low <- unname(statistical_test$conf.int[1]); ci_high <- unname(statistical_test$conf.int[2])
+        }
+      }
+      significant <- isTRUE(!is.null(delta) && is.finite(delta) && !is.null(p_value) && is.finite(p_value) && p_value < alpha && delta != 0)
+      direction <- directions[[metric]]
+      interpretation <- if (!significant || is.null(delta) || delta == 0) "not_significant" else if ((direction == "higher" && delta > 0) || (direction == "lower" && delta < 0)) "better" else "worse"
+      classification <- if (significant && interpretation == "better") "significant_positive" else if (significant && interpretation == "worse") "significant_negative" else "not_significant"
+      results[[index]] <- c(
+        list(test_name = test$name, group_a_label = test$group_a$label, group_a_expression = test$group_a$expression, group_b_label = test$group_b$label, group_b_expression = test$group_b$expression, metric = metric, unknown_excluded_n = sum(usable & unknown), overlap_excluded_n = sum(usable & overlap)),
+        setNames(group_a, paste0("group_a_", names(group_a))),
+        setNames(group_b, paste0("group_b_", names(group_b))),
+        list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, significant = significant, classification = classification, better_is = direction, interpretation = interpretation)
+      )
+      index <- index + 1L
+    }
+  }
+  results
+}
+
 analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   progress("[Lifestyle] Starting analysis...")
   start <- parse_date(config$start_date); end <- parse_date(config$end_date)
@@ -566,6 +751,7 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   sleep <- timed("sleep parsing", sleep_rows(sleep_materialized, specs, derived_specs))
   excluded <- norm(unlist(config$excluded_activities %||% list())); configured <- as.character(unlist(config$activities %||% list()))
   found <- unique(unlist(lapply(lifestyle, names))); activities <- unique(c(configured, found)); activities <- activities[!norm(activities) %in% excluded]
+  configured_comparison_tests <- comparison_tests(config, activities)
   progress("[Lifestyle] Activities to analyse: ", length(activities), "; metrics: ", length(metrics))
   missing_default <- isTRUE(config$missing_activity_is_no %||% TRUE); overrides <- config$missing_activity_is_no_by_activity %||% list()
   days <- seq.Date(start, end, by = "day")
@@ -656,7 +842,9 @@ analyse <- function(config, lifestyle_materialized, sleep_materialized) {
   progress("[Lifestyle] Statistical analysis finished: ", total_count, " activity/metric combinations")
   progress(sprintf("[Lifestyle] Significance: %d significant (%.1f%%), %d not significant (%.1f%%)", significant_count, significance_summary$significant_percent, not_significant_count, significance_summary$not_significant_percent))
   interpretation_summary <- if (length(results)) table(vapply(results, function(x) as.character(x$interpretation %||% "not_significant"), character(1))) else integer()
-    list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_interval = confidence, significance_level = alpha, method = "Welch two-sample t-test", descriptive_statistics = "mean, median, sd, interval_low, and interval_high are calculated separately for done and not_done; CSV fields are grouped directly after their corresponding n", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results)
+  comparison_results <- activity_comparison_results(configured_comparison_tests, lifestyle, lifestyle_keys, sleep_values, metrics, directions, config, interval, confidence, alpha)
+  if (length(configured_comparison_tests)) progress("[Lifestyle] Configured activity comparison tests: ", length(comparison_results), " test/metric combinations")
+    list(metadata = list(start_date = as.character(start), end_date = as.character(end), value_interval = interval, confidence_interval = confidence, significance_level = alpha, method = "Welch two-sample t-test", descriptive_statistics = "mean, median, sd, interval_low, and interval_high are calculated separately for done and not_done; CSV fields are grouped directly after their corresponding n", delta_definition = "mean(done) - mean(not_done)", metric_direction_definition = "better_is controls whether higher or lower values are interpreted as better; configured directions are included per result", not_done_definition = "not_done = native_not_done + assumed_not_done; native_not_done is explicitly logged as false, assumed_not_done is missing and enabled by missing_activity_is_no", significance_summary = significance_summary, interpretation_summary = as.list(interpretation_summary)), results = results, comparison_results = comparison_results)
 }
 
 next_run_output_dir <- function(base_dir) {
@@ -731,6 +919,19 @@ write_outputs <- function(result, output_dir, config) {
   # this frame instead of rebuilding and coercing the same result lists.
   all_frame <- result_frame(result$results, "all")
 
+  # Directly configured activity comparisons intentionally have their own CSV
+  # so the established activity-vs-not-done files and JSON contract stay intact.
+  if (length(result$comparison_results %||% list())) {
+    comparison_columns <- unique(unlist(lapply(result$comparison_results, names), use.names = FALSE))
+    comparison_priority <- c("test_name", "metric", "group_a_label", "group_b_label", "group_a_expression", "group_b_expression", "delta", "p_value", "delta_ci_low", "delta_ci_high", "classification", "interpretation")
+    comparison_columns <- c(intersect(comparison_priority, comparison_columns), setdiff(comparison_columns, comparison_priority))
+    comparison_frame <- do.call(rbind, lapply(result$comparison_results, function(x) {
+      as.data.frame(lapply(x, function(value) if (is.null(value)) NA else value), stringsAsFactors = FALSE)
+    }))
+    comparison_frame <- comparison_frame[order(as.character(comparison_frame$test_name), as.character(comparison_frame$metric)), comparison_columns, drop = FALSE]
+    utils::write.csv(comparison_frame, file.path(output_dir, "activity_comparison_tests.csv"), row.names = FALSE, na = "")
+  }
+
   # Write the all-metrics files with an explicit `all_` prefix so they cannot
   # be confused with the per-metric exports written below.
   all_metric_file_stems <- c(
@@ -778,8 +979,10 @@ write_outputs <- function(result, output_dir, config) {
     }
   }
   if (write_json_result) {
-    result$config <- config
-    jsonlite::write_json(result, file.path(output_dir, "lifestyle_sleep_analysis.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")
+    json_result <- result
+    json_result$comparison_results <- NULL
+    json_result$config <- config
+    jsonlite::write_json(json_result, file.path(output_dir, "lifestyle_sleep_analysis.json"), auto_unbox = TRUE, pretty = TRUE, na = "null")
   }
   invisible(output_dir)
 }

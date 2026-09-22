@@ -112,6 +112,42 @@ the three classification CSVs per metric. Set `json: false` to disable the
 `lifestyle_sleep_analysis.json` result file. Missing switches default to
 `true`, and each switch must be a single YAML boolean value.
 
+### Direct activity comparison tests
+
+`activity_comparison_tests` optionally defines direct, independent comparisons
+between two groups of lifestyle entries. They are written to the separate
+`activity_comparison_tests.csv`; the existing activity-versus-not-done CSVs and
+JSON file are unchanged. Every configured test is evaluated for every selected
+sleep metric and uses the same Welch two-sample test, confidence interval,
+significance level, and `metric_directions` interpretation as the main
+analysis.
+
+```yaml
+activity_comparison_tests:
+  - name: "Display off: 1h vs only 30min"
+    group_a:
+      label: "1 hour before bed"
+      expression: "`Display off 1h before bed` AND `Display off 30min before bed`"
+    group_b:
+      label: "only 30 minutes before bed"
+      expression: "`Display off 30min before bed` AND NOT `Display off 1h before bed`"
+```
+
+Expressions accept backtick-quoted activity names, `NOT`, `AND`, `OR`, and
+parentheses. Operator precedence is `NOT`, then `AND`, then `OR`. Invalid
+syntax or a name that is not a configured or observed activity stops the run
+with a configuration error. Missing logs follow `missing_activity_is_no` and
+`missing_activity_is_no_by_activity`: when absence is not considered `no`, a
+day whose rule cannot be evaluated is excluded. A night that matches both
+groups is excluded from both groups and counted in `overlap_excluded_n`.
+
+The comparison CSV includes labels and source expressions for both groups,
+their descriptive statistics, `unknown_excluded_n`, `overlap_excluded_n`, the
+mean difference `mean(group_a) - mean(group_b)`, its confidence interval,
+p-value, and direction-aware `better`, `worse`, or `not_significant`
+interpretation. Like the other results, these are observational associations,
+not evidence that the activity caused the outcome.
+
 Metric directions are configured independently under `metric_directions`.
 Use `higher` when a higher value is better and `lower` when a lower value is
 better. The unchanged standard metrics are `Sleep_Score`, `Sleep_Duration`,
