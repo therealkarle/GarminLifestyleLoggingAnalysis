@@ -897,6 +897,10 @@ write_outputs <- function(result, output_dir, config) {
   write_per_metric_classifications <- output_enabled("per_metric_classifications")
   write_per_metric_significant <- output_switch("per_metric_significant", write_per_metric_classifications)
   write_per_metric_unsignificant <- output_switch("per_metric_unsignificant", write_per_metric_classifications)
+  write_activity_comparison_combined <- output_switch("activity_comparison_combined", TRUE)
+  write_activity_comparison_classifications <- output_switch("activity_comparison_classifications", FALSE)
+  write_activity_comparison_significant <- output_switch("activity_comparison_significant", write_activity_comparison_classifications)
+  write_activity_comparison_unsignificant <- output_switch("activity_comparison_unsignificant", write_activity_comparison_classifications)
   write_json_result <- output_enabled("json")
   classifications <- c("significant_positive", "significant_negative", "not_significant")
   result_columns <- if (length(result$results)) {
@@ -949,7 +953,40 @@ write_outputs <- function(result, output_dir, config) {
       as.data.frame(lapply(x, function(value) if (is.null(value)) NA else value), stringsAsFactors = FALSE)
     }))
     comparison_frame <- comparison_frame[order(as.character(comparison_frame$test_name), as.character(comparison_frame$metric)), comparison_columns, drop = FALSE]
-    utils::write.csv(comparison_frame, file.path(output_dir, "activity_comparison_tests.csv"), row.names = FALSE, na = "")
+    if (write_activity_comparison_combined) {
+      utils::write.csv(comparison_frame, file.path(output_dir, "activity_comparison_tests.csv"), row.names = FALSE, na = "")
+    }
+    comparison_overrides <- analysis_output$activity_comparison_overrides %||% list()
+    if (!is.list(comparison_overrides)) {
+      stop("analysis_output.activity_comparison_overrides must be a mapping.")
+    }
+    comparison_exports <- list(
+      significant = c("significant_positive", "significant_negative"),
+      not_significant = "not_significant"
+    )
+    for (export_name in names(comparison_exports)) {
+      classification_default <- if (export_name == "significant") write_activity_comparison_significant else write_activity_comparison_unsignificant
+      selected <- comparison_frame[comparison_frame$classification %in% comparison_exports[[export_name]], , drop = FALSE]
+      if (nrow(selected) && "test_name" %in% names(selected)) {
+        enabled <- vapply(as.character(selected$test_name), function(test_name) {
+          test_override <- comparison_overrides[[test_name]] %||% list()
+          if (!is.list(test_override)) {
+            stop(sprintf("analysis_output.activity_comparison_overrides.%s must be a mapping.", test_name))
+          }
+          test_classifications <- output_switch("classifications", NULL, test_override)
+          test_default <- if (is.null(test_classifications)) classification_default else test_classifications
+          output_switch(if (export_name == "significant") "significant" else "unsignificant", test_default, test_override)
+        }, logical(1))
+        selected <- selected[enabled, , drop = FALSE]
+      }
+      if (!nrow(selected)) next
+      utils::write.csv(
+        selected[, comparison_columns, drop = FALSE],
+        file.path(output_dir, paste0("activity_comparison_tests_", export_name, ".csv")),
+        row.names = FALSE,
+        na = ""
+      )
+    }
   }
 
   # Write the all-metrics files with an explicit `all_` prefix so they cannot

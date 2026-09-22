@@ -29,6 +29,15 @@ analysis_output:
   # per_metric_overrides:
   #   Sleep_Score:
   #     unsignificant: false
+  # Classification files for direct activity comparisons are opt-in.
+  # Both positive and negative significant outcomes share one CSV.
+  activity_comparison_combined: true
+  activity_comparison_classifications: true
+  activity_comparison_significant: true
+  activity_comparison_unsignificant: false
+  # activity_comparison_overrides:
+  #   "Display off: 1h vs only 30min":
+  #     unsignificant: true
   json: true
 # Inventory output is written below output_dir/available_metrics_and_activities.
 # Each format can be enabled or disabled independently.

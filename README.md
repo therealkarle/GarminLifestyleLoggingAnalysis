@@ -147,6 +147,24 @@ sleep metric and uses the same Welch two-sample test, confidence interval,
 significance level, and `metric_directions` interpretation as the main
 analysis.
 
+`analysis_output.activity_comparison_combined` controls the existing combined
+file (default: `true`). Optional classification CSVs are controlled by
+`activity_comparison_classifications`, which defaults to `false` for existing
+configurations. `activity_comparison_significant` overrides that fallback and
+writes one `activity_comparison_tests_significant.csv` containing both positive
+and negative significant outcomes. `activity_comparison_unsignificant` writes
+`activity_comparison_tests_not_significant.csv`. Per-test exceptions use the
+configured comparison `name`:
+
+```yaml
+analysis_output:
+  activity_comparison_significant: true
+  activity_comparison_unsignificant: false
+  activity_comparison_overrides:
+    "Display off: 1h vs only 30min":
+      unsignificant: true
+```
+
 ```yaml
 activity_comparison_tests:
   - name: "Display off: 1h vs only 30min"

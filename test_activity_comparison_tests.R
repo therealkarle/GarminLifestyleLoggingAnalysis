@@ -88,4 +88,31 @@ expect(file.exists(file.path(classification_output_dir, "Sleep_Score_significant
 expect(!file.exists(file.path(classification_output_dir, "Sleep_Score_not_significant.csv")), "per_metric_unsignificant: false must suppress the default per-metric CSV.")
 expect(file.exists(file.path(classification_output_dir, "HRV_not_significant.csv")), "A per-metric override must take priority over the per-metric default.")
 
+comparison_classification_result <- list(
+  results = list(),
+  comparison_results = list(
+    list(test_name = "Primary comparison", metric = "Sleep_Score", delta = 1, p_value = 0.04, classification = "significant_positive"),
+    list(test_name = "Primary comparison", metric = "HRV", delta = -1, p_value = 0.04, classification = "significant_negative"),
+    list(test_name = "Primary comparison", metric = "Stress", delta = 0, p_value = 0.50, classification = "not_significant"),
+    list(test_name = "Exceptional comparison", metric = "Sleep_Score", delta = 0, p_value = 0.50, classification = "not_significant")
+  ), metadata = list()
+)
+comparison_classification_config <- list(analysis_output = list(
+  all_combined = FALSE, all_classifications = FALSE,
+  per_metric_combined = FALSE, per_metric_classifications = FALSE,
+  activity_comparison_combined = FALSE,
+  activity_comparison_classifications = FALSE,
+  activity_comparison_significant = TRUE,
+  activity_comparison_unsignificant = FALSE,
+  activity_comparison_overrides = list("Exceptional comparison" = list(unsignificant = TRUE)),
+  json = FALSE
+))
+comparison_classification_dir <- analysis$write_outputs(comparison_classification_result, tempfile("comparison-classification-output-"), comparison_classification_config)
+significant_comparisons <- utils::read.csv(file.path(comparison_classification_dir, "activity_comparison_tests_significant.csv"), stringsAsFactors = FALSE)
+expect(nrow(significant_comparisons) == 2L, "One significant comparison CSV must contain positive and negative outcomes.")
+expect(file.exists(file.path(comparison_classification_dir, "activity_comparison_tests_not_significant.csv")), "A comparison-specific override must write the non-significant CSV row.")
+comparison_not_significant <- utils::read.csv(file.path(comparison_classification_dir, "activity_comparison_tests_not_significant.csv"), stringsAsFactors = FALSE)
+expect(identical(comparison_not_significant$test_name, "Exceptional comparison"), "The global non-significant comparison setting must still filter other comparisons.")
+expect(!file.exists(file.path(comparison_classification_dir, "activity_comparison_tests.csv")), "activity_comparison_combined: false must suppress the combined comparison CSV.")
+
 cat("activity comparison tests passed\n")
