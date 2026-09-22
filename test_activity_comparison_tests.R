@@ -115,4 +115,20 @@ comparison_not_significant <- utils::read.csv(file.path(comparison_classificatio
 expect(identical(comparison_not_significant$test_name, "Exceptional comparison"), "The global non-significant comparison setting must still filter other comparisons.")
 expect(!file.exists(file.path(comparison_classification_dir, "activity_comparison_tests.csv")), "activity_comparison_combined: false must suppress the combined comparison CSV.")
 
+empty_significant_result <- list(
+  results = list(),
+  comparison_results = list(list(test_name = "No difference", metric = "Sleep_Score", delta = 0, p_value = 0.50, classification = "not_significant")),
+  metadata = list()
+)
+empty_significant_config <- list(analysis_output = list(
+  activity_comparison_combined = FALSE,
+  activity_comparison_significant = TRUE,
+  activity_comparison_unsignificant = FALSE,
+  json = FALSE
+))
+empty_significant_dir <- analysis$write_outputs(empty_significant_result, tempfile("empty-significant-comparison-output-"), empty_significant_config)
+empty_significant_file <- file.path(empty_significant_dir, "activity_comparison_tests_significant.csv")
+expect(file.exists(empty_significant_file), "An enabled significant comparison export must exist even with no significant results.")
+expect(nrow(utils::read.csv(empty_significant_file, stringsAsFactors = FALSE)) == 0L, "The empty significant comparison export must contain only its CSV header.")
+
 cat("activity comparison tests passed\n")

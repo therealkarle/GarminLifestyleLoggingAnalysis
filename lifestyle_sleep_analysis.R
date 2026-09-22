@@ -979,7 +979,9 @@ write_outputs <- function(result, output_dir, config) {
         }, logical(1))
         selected <- selected[enabled, , drop = FALSE]
       }
-      if (!nrow(selected)) next
+      # Match the main classification exports: an enabled global switch writes
+      # a header-only CSV when no comparison has that classification.
+      if (!nrow(selected) && !classification_default) next
       utils::write.csv(
         selected[, comparison_columns, drop = FALSE],
         file.path(output_dir, paste0("activity_comparison_tests_", export_name, ".csv")),
