@@ -145,9 +145,9 @@ groups is excluded from both groups and counted in `overlap_excluded_n`.
 The comparison CSV includes any supplied labels, source expressions for both
 groups, their descriptive statistics, `unknown_excluded_n`, `overlap_excluded_n`, the
 mean difference `mean(group_a) - mean(group_b)`, its confidence interval,
-p-value, and direction-aware `better`, `worse`, or `not_significant`
-interpretation. Like the other results, these are observational associations,
-not evidence that the activity caused the outcome.
+p-value, direction-aware classification, and metric direction. Like the other
+results, these are observational associations, not evidence that the activity
+caused the outcome.
 
 Metric directions are configured independently under `metric_directions`.
 Use `higher` when a higher value is better and `lower` when a lower value is

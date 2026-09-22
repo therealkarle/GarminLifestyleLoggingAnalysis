@@ -704,7 +704,7 @@ activity_comparison_results <- function(tests, lifestyle, lifestyle_keys, sleep_
         list(test_name = test$name, group_a_label = test$group_a$label, group_a_expression = test$group_a$expression, group_b_label = test$group_b$label, group_b_expression = test$group_b$expression, metric = metric, unknown_excluded_n = sum(usable & unknown), overlap_excluded_n = sum(usable & overlap)),
         setNames(group_a, paste0("group_a_", names(group_a))),
         setNames(group_b, paste0("group_b_", names(group_b))),
-        list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, significant = significant, classification = classification, better_is = direction, interpretation = interpretation)
+        list(delta = delta, delta_ci_low = ci_low, delta_ci_high = ci_high, p_value = p_value, classification = classification, better_is = direction)
       )
       index <- index + 1L
     }
@@ -929,7 +929,7 @@ write_outputs <- function(result, output_dir, config) {
       "group_b_n", "group_b_mean", "group_b_median", "group_b_sd", "group_b_interval_low", "group_b_interval_high",
       "unknown_excluded_n", "overlap_excluded_n",
       "group_a_label", "group_b_label",
-      "classification", "significant", "better_is", "interpretation",
+      "classification", "better_is",
       "group_a_expression", "group_b_expression"
     )
     comparison_columns <- c(intersect(comparison_priority, comparison_columns), setdiff(comparison_columns, comparison_priority))
