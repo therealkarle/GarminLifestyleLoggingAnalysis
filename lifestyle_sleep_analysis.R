@@ -923,7 +923,15 @@ write_outputs <- function(result, output_dir, config) {
   # so the established activity-vs-not-done files and JSON contract stay intact.
   if (length(result$comparison_results %||% list())) {
     comparison_columns <- unique(unlist(lapply(result$comparison_results, names), use.names = FALSE))
-    comparison_priority <- c("test_name", "metric", "group_a_label", "group_b_label", "group_a_expression", "group_b_expression", "delta", "p_value", "delta_ci_low", "delta_ci_high", "classification", "interpretation")
+    comparison_priority <- c(
+      "test_name", "metric", "delta", "p_value", "delta_ci_low", "delta_ci_high",
+      "group_a_n", "group_a_mean", "group_a_median", "group_a_sd", "group_a_interval_low", "group_a_interval_high",
+      "group_b_n", "group_b_mean", "group_b_median", "group_b_sd", "group_b_interval_low", "group_b_interval_high",
+      "unknown_excluded_n", "overlap_excluded_n",
+      "group_a_label", "group_b_label",
+      "classification", "significant", "better_is", "interpretation",
+      "group_a_expression", "group_b_expression"
+    )
     comparison_columns <- c(intersect(comparison_priority, comparison_columns), setdiff(comparison_columns, comparison_priority))
     comparison_frame <- do.call(rbind, lapply(result$comparison_results, function(x) {
       as.data.frame(lapply(x, function(value) if (is.null(value)) NA else value), stringsAsFactors = FALSE)
