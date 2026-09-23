@@ -1166,7 +1166,7 @@ get_arg <- function(name) { i <- match(name, args); if (is.na(i) || i == length(
 
 # With no command-line arguments, source() and plain Rscript both use automatic
 # config discovery. Explicit arguments keep the CLI behaviour unchanged.
-if (identical(environment(), globalenv())) {
+if (identical(environment(), globalenv()) && !isTRUE(getOption("garmin_lifestyle_analysis_import_only"))) {
   progress("[Lifestyle] Script loaded; preparing to run...")
   if (!length(args)) {
     run_lifestyle_analysis()

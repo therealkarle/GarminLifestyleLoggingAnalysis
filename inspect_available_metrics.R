@@ -15,6 +15,11 @@ script_directory <- function() {
 
 analysis_script <- file.path(script_directory(), "lifestyle_sleep_analysis.R")
 if (!file.exists(analysis_script)) stop("Cannot find lifestyle_sleep_analysis.R next to this script.")
+# The analysis script remains directly runnable from Rscript/RStudio, but the
+# inventory imports only its helpers and must not create an analysis run first.
+previous_import_only <- getOption("garmin_lifestyle_analysis_import_only")
+options(garmin_lifestyle_analysis_import_only = TRUE)
+on.exit(options(garmin_lifestyle_analysis_import_only = previous_import_only), add = TRUE)
 source(analysis_script, local = TRUE)
 
 progress <- function(...) {
@@ -24,6 +29,10 @@ progress <- function(...) {
 
 scalar_names <- function(value, names_seen = character()) {
   if (!is.list(value)) return(names_seen)
+  if (is.null(names(value))) {
+    for (child in value) names_seen <- scalar_names(child, names_seen)
+    return(unique(names_seen))
+  }
   for (name in names(value)) {
     child <- value[[name]]
     if (is.list(child)) {
@@ -37,6 +46,10 @@ scalar_names <- function(value, names_seen = character()) {
 
 scalar_samples <- function(value, samples = list()) {
   if (!is.list(value)) return(samples)
+  if (is.null(names(value))) {
+    for (child in value) samples <- scalar_samples(child, samples)
+    return(samples)
+  }
   for (name in names(value)) {
     child <- value[[name]]
     if (is.list(child)) {
@@ -105,7 +118,14 @@ sleep_metric_records <- function(materialized) {
   records
 }
 
-read_sleep_inventory <- function(materialized) {
+read_metric_inventory_by_source <- function(materialized) {
+  build_metrics <- function(samples, source_field = NULL) {
+    metric_names <- sort(names(samples), na.last = TRUE)
+    lapply(metric_names, function(name) {
+      list(name = name, source_field = source_field %||% name, sample = format_sample(samples[[name]]))
+    })
+  }
+
   names_found <- character()
   samples <- list()
   json_files <- source_files(materialized, "_sleepData\\.json$")
@@ -135,7 +155,63 @@ read_sleep_inventory <- function(materialized) {
     }
   }
   names_found <- sort(unique(c(names_found, names(csv_columns))), na.last = TRUE)
-  list(names = names_found, samples = samples, json_files = length(json_files), csv_files = length(csv_files))
+  sleep_samples <- samples
+  for (name in names_found) if (is.null(sleep_samples[[name]])) sleep_samples[[name]] <- ""
+
+  health_files <- source_files(materialized, "_healthStatusData\\.json$")
+  health_samples <- list()
+  for (path in health_files) {
+    payload <- tryCatch(read_json(path), error = function(e) NULL)
+    for (entry in payload %||% list()) {
+      if (!is.list(entry)) next
+      for (item in entry$metrics %||% list()) {
+        if (!is.list(item)) next
+        type <- trimws(as.character(item$type %||% ""))[1]
+        if (!nzchar(type) || is.null(health_samples[[type]])) {
+          if (!nzchar(type)) next
+          health_samples[[type]] <- format_sample(item$value)
+        }
+      }
+    }
+  }
+
+  uds_files <- source_files(materialized, "^UDSFile_.*\\.json$")
+  rhr_sample <- NULL
+  for (path in uds_files) {
+    payload <- tryCatch(read_json(path), error = function(e) NULL)
+    for (entry in payload %||% list()) {
+      if (!is.list(entry) || !is.null(rhr_sample)) next
+      value <- entry$currentDayRestingHeartRate
+      if (!is.null(value)) rhr_sample <- format_sample(value)
+    }
+    if (!is.null(rhr_sample)) break
+  }
+  uds_metrics <- if (is.null(rhr_sample)) list() else list(list(
+    name = "RHR",
+    source_field = "currentDayRestingHeartRate",
+    sample = rhr_sample
+  ))
+
+  list(sources = list(
+    list(
+      name = "Sleep data JSON",
+      file_pattern = "*_sleepData.json",
+      file_count = length(json_files),
+      metrics = build_metrics(sleep_samples)
+    ),
+    list(
+      name = "Health status JSON",
+      file_pattern = "*_healthStatusData.json",
+      file_count = length(health_files),
+      metrics = build_metrics(health_samples, "metrics[].value (by metrics[].type)")
+    ),
+    list(
+      name = "Daily summary UDS JSON",
+      file_pattern = "UDSFile_*.json",
+      file_count = length(uds_files),
+      metrics = uds_metrics
+    )
+  ))
 }
 
 read_lifestyle_inventory <- function(materialized, sleep_records, configured_metrics, start, end, excluded) {
@@ -193,7 +269,7 @@ on.exit({
   if (sleep_source$cleanup && !identical(sleep_source$root, lifestyle_source$root)) unlink(sleep_source$root, recursive = TRUE)
 }, add = TRUE)
 
-sleep_inventory <- read_sleep_inventory(sleep_source)
+metric_inventory <- read_metric_inventory_by_source(sleep_source)
 specs <- metric_specs(config)
 # Keep the inventory aligned with the analysis: configured HRV and RHR are
 # available from Garmin's daily Health Status and UDS exports as well.
@@ -230,11 +306,30 @@ configured_metric_lines <- if (is.list(configured_metrics) && length(configured_
   character()
 }
 
-metric_lines <- character()
-if (length(metric_counts)) {
-  metric_lines <- names(metric_counts)
-} else {
-  metric_lines <- "No sleep metrics found."
+metric_lines <- c("Garmin metrics by source")
+metric_rows <- list()
+for (source in metric_inventory$sources) {
+  metric_lines <- c(
+    metric_lines,
+    "",
+    paste0(source$name, " (", source$file_pattern, "; files: ", source$file_count, ")")
+  )
+  if (!length(source$metrics)) {
+    metric_lines <- c(metric_lines, "- No metrics found.")
+    next
+  }
+  for (metric in source$metrics) {
+    metric_lines <- c(metric_lines, paste0("- ", metric$name, " | field: ", metric$source_field, if (nzchar(metric$sample)) paste0(" | sample: ", metric$sample) else ""))
+    metric_rows[[length(metric_rows) + 1L]] <- data.frame(
+      source = source$name,
+      file_pattern = source$file_pattern,
+      source_files = source$file_count,
+      metric = metric$name,
+      source_field = metric$source_field,
+      sample = metric$sample,
+      stringsAsFactors = FALSE
+    )
+  }
 }
 
 activity_lines <- c(
@@ -259,6 +354,10 @@ if (write_txt) {
 }
 
 if (write_csv) {
+  metric_frame <- if (length(metric_rows)) do.call(rbind, metric_rows) else data.frame(
+    source = character(), file_pattern = character(), source_files = integer(), metric = character(), source_field = character(), sample = character(), stringsAsFactors = FALSE
+  )
+  utils::write.csv(metric_frame, file.path(output_dir, "sleep_metrics.csv"), row.names = FALSE, na = "")
   activity_frame <- if (length(activity_counts)) {
     do.call(rbind, lapply(sort(names(activity_counts)), function(activity) {
       n_done <- activity_counts[[activity]][["yes"]]

@@ -56,16 +56,17 @@ Rscript inspect_available_metrics.R --config GarminLifestyleAnalysisConfig.yaml
 
 This creates a separate dated folder below
 `Out/available_metrics_and_activities/`. It contains `sleep_metrics.txt` and
-`activities.txt` plus `activities.csv` when CSV output is enabled. Set
+`activities.txt` plus `sleep_metrics.csv` and `activities.csv` when CSV output is enabled. Set
 `inventory_output: { txt: false }` or `inventory_output: { csv: false }` in
 the config to disable either format. The activity counts include only explicitly selected
 `yes` and explicitly selected `no` values; missing activity entries are
 ignored, regardless of `missing_activity_is_no`. Sleep metrics are discovered
 primarily from all scalar fields in Garmin `_sleepData.json` records, including
 fields that are not yet listed in `sleep_metrics`. Sleep-named CSV files are
-used only as a fallback for older exports without `_sleepData.json`. Metrics
-are written only as one metric name per line in `sleep_metrics.txt`. Activity
-reports contain `n_done`, `n_not_done`, and `n_total`.
+used only as a fallback for older exports without `_sleepData.json`. The metric
+reports are grouped by source: Sleep data JSON, Health status JSON, and Daily
+summary UDS JSON. Each entry identifies its source field and a sample value.
+Activity reports contain `n_done`, `n_not_done`, and `n_total`.
 
 When configured, `HRV` is additionally read from each Wellness
 `*_healthStatusData.json` record whose metric type is `HRV`. `RHR` is read
