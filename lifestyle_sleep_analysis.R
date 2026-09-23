@@ -574,6 +574,66 @@ sleep_rows_json <- function(materialized, specs, derived_specs) {
   result
 }
 
+# Garmin stores nightly HRV and the daily resting heart rate outside the sleep
+# export. These two sources share Garmin's wake-up/calendar date, which is the
+# same date used by the sleep records in this analysis.
+daily_health_metric_rows <- function(materialized, specs) {
+  result <- list()
+  add_value <- function(day, metric, value) {
+    if (is.na(day) || !metric %in% names(specs) || !is.finite(value)) return()
+    key <- as.character(day)
+    if (is.null(result[[key]])) result[[key]] <<- list()
+    # These are Garmin's dedicated daily measurements, so they take precedence
+    # over similarly named fields nested in a sleep export.
+    result[[key]][[metric]] <<- value
+  }
+
+  health_files <- source_files(materialized, "_healthStatusData\\.json$")
+  if (length(health_files) && "HRV" %in% names(specs)) {
+    progress("[Lifestyle] Reading ", length(health_files), " health-status JSON file(s) for HRV...")
+    for (path in health_files) {
+      payload <- tryCatch(read_json(path), error = function(e) NULL)
+      for (entry in payload %||% list()) {
+        if (!is.list(entry)) next
+        hrv <- NULL
+        for (item in entry$metrics %||% list()) {
+          if (is.list(item) && identical(toupper(as.character(item$type %||% "")), "HRV")) {
+            hrv <- parse_number(item$value)
+            break
+          }
+        }
+        add_value(parse_date(entry$calendarDate %||% entry$date), "HRV", hrv %||% NA_real_)
+      }
+    }
+  }
+
+  uds_files <- source_files(materialized, "^UDSFile_.*\\.json$")
+  if (length(uds_files) && "RHR" %in% names(specs)) {
+    progress("[Lifestyle] Reading ", length(uds_files), " UDS JSON file(s) for RHR...")
+    for (path in uds_files) {
+      payload <- tryCatch(read_json(path), error = function(e) NULL)
+      for (entry in payload %||% list()) {
+        if (!is.list(entry)) next
+        # Deliberately use the current-day value, never restingHeartRate.
+        add_value(
+          parse_date(entry$calendarDate %||% entry$date),
+          "RHR",
+          parse_number(entry$currentDayRestingHeartRate)
+        )
+      }
+    }
+  }
+  result
+}
+
+merge_metric_rows <- function(base, additions) {
+  for (key in names(additions)) {
+    if (is.null(base[[key]])) base[[key]] <- list()
+    for (metric in names(additions[[key]])) base[[key]][[metric]] <- additions[[key]][[metric]]
+  }
+  base
+}
+
 metric_specs <- function(config) {
   configured <- config$sleep_metrics %||% names(DEFAULT_METRICS)
   if (is.list(configured) && !is.null(names(configured))) {
@@ -614,36 +674,36 @@ sleep_rows <- function(materialized, specs, derived_specs) {
   # only a compatibility fallback for exports that do not contain usable JSON.
   if (length(result)) {
     progress("[Lifestyle] Using sleep JSON data; skipping CSV fallback.")
-    return(result)
-  }
-
-  csv_files <- source_files(materialized, "\\.csv$")
-  progress("[Lifestyle] No usable sleep JSON found; reading ", length(csv_files), " sleep CSV file(s) as fallback...")
-  for (path in csv_files) {
-    progress("[Lifestyle] Reading sleep file: ", path)
-    data <- read_csv_flexible(path); if (is.null(data) || !nrow(data)) next
-    date_candidates <- names(data)[norm(names(data)) %in% c("date", "datum", "sleep score 4 wochen", "sleep date", "calendar date")]
-    if (!length(date_candidates)) next
-    date_col <- date_candidates[1]
-    matched <- lapply(specs, function(aliases) { columns <- names(data)[norm(names(data)) %in% norm(aliases)]; if (length(columns)) columns[1] else NA_character_ })
-    if (!any(!is.na(unlist(matched)))) next
-    for (i in seq_len(nrow(data))) {
-      day <- parse_date(data[[date_col]][i]); if (is.na(day)) next
-      key <- as.character(day); if (is.null(result[[key]])) result[[key]] <- list()
-      source_values <- setNames(lapply(data[i, , drop = FALSE], parse_number), names(data))
-      base_values <- list()
-      for (metric in names(specs)) {
-        column <- matched[[metric]]; if (is.na(column)) next
-        value <- if (metric == "Sleep_Duration") duration_to_hours(data[[column]][i]) else parse_number(data[[column]][i])
-        if (!is.na(value)) base_values[[metric]] <- value
-      }
-      metric_values <- evaluate_derived_metrics(source_values, base_values, derived_specs)
-      for (metric in names(metric_values)) {
-        if (is.null(result[[key]][[metric]])) result[[key]][[metric]] <- metric_values[[metric]]
+  } else {
+    csv_files <- source_files(materialized, "\\.csv$")
+    progress("[Lifestyle] No usable sleep JSON found; reading ", length(csv_files), " sleep CSV file(s) as fallback...")
+    for (path in csv_files) {
+      progress("[Lifestyle] Reading sleep file: ", path)
+      data <- read_csv_flexible(path); if (is.null(data) || !nrow(data)) next
+      date_candidates <- names(data)[norm(names(data)) %in% c("date", "datum", "sleep score 4 wochen", "sleep date", "calendar date")]
+      if (!length(date_candidates)) next
+      date_col <- date_candidates[1]
+      matched <- lapply(specs, function(aliases) { columns <- names(data)[norm(names(data)) %in% norm(aliases)]; if (length(columns)) columns[1] else NA_character_ })
+      if (!any(!is.na(unlist(matched)))) next
+      for (i in seq_len(nrow(data))) {
+        day <- parse_date(data[[date_col]][i]); if (is.na(day)) next
+        key <- as.character(day); if (is.null(result[[key]])) result[[key]] <- list()
+        source_values <- setNames(lapply(data[i, , drop = FALSE], parse_number), names(data))
+        base_values <- list()
+        for (metric in names(specs)) {
+          column <- matched[[metric]]; if (is.na(column)) next
+          value <- if (metric == "Sleep_Duration") duration_to_hours(data[[column]][i]) else parse_number(data[[column]][i])
+          if (!is.na(value)) base_values[[metric]] <- value
+        }
+        metric_values <- evaluate_derived_metrics(source_values, base_values, derived_specs)
+        for (metric in names(metric_values)) {
+          if (is.null(result[[key]][[metric]])) result[[key]][[metric]] <- metric_values[[metric]]
+        }
       }
     }
   }
-  if (!length(result)) stop("No compatible Garmin sleep JSON or CSV found. Provide a Garmin export folder/ZIP or sleep_input.")
+  result <- merge_metric_rows(result, daily_health_metric_rows(materialized, specs))
+  if (!length(result)) stop("No compatible Garmin sleep, health-status, or UDS JSON found. Provide a Garmin export folder/ZIP or sleep_input.")
   progress("[Lifestyle] Sleep dates loaded: ", length(result))
   result
 }

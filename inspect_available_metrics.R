@@ -195,7 +195,12 @@ on.exit({
 
 sleep_inventory <- read_sleep_inventory(sleep_source)
 specs <- metric_specs(config)
-sleep_records <- sleep_metric_records(sleep_source)
+# Keep the inventory aligned with the analysis: configured HRV and RHR are
+# available from Garmin's daily Health Status and UDS exports as well.
+sleep_records <- merge_metric_rows(
+  sleep_metric_records(sleep_source),
+  daily_health_metric_rows(sleep_source, specs)
+)
 excluded <- norm(unlist(config$excluded_activities %||% list()))
 inventory <- read_lifestyle_inventory(lifestyle_source, sleep_records, names(specs), start, end, excluded)
 activity_counts <- inventory$activity_counts

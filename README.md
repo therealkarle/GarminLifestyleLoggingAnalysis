@@ -67,6 +67,16 @@ used only as a fallback for older exports without `_sleepData.json`. Metrics
 are written only as one metric name per line in `sleep_metrics.txt`. Activity
 reports contain `n_done`, `n_not_done`, and `n_total`.
 
+When configured, `HRV` is additionally read from each Wellness
+`*_healthStatusData.json` record whose metric type is `HRV`. `RHR` is read
+from each Aggregator `UDSFile_*.json` record using
+`currentDayRestingHeartRate` (not `restingHeartRate`). These daily Garmin
+measurements use the sleep record's wake-up date and take precedence over
+same-named values found in a sleep export.
+
+The metric inventory uses the same two sources, so configured `HRV` and `RHR`
+also appear there when their daily Garmin records are available.
+
 ## Configuration
 
 The example configuration documents the supported input formats and analysis
